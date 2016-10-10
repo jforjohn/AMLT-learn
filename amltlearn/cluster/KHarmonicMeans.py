@@ -157,18 +157,25 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
                  algorithm='auto'):
 
         self.n_clusters = n_clusters
-        self.init = init
         self.max_iter = max_iter
         self.tol = tol
         self.p = p
-        self.precompute_distances = precompute_distances
         self.n_init = n_init
         self.verbose = verbose
         self.random_state = random_state
-        self.copy_x = copy_x
         self.n_jobs = n_jobs
-        self.algorithm = algorithm
         self.e = e
+
+        self.centroid = None
+        self.labels_ = None
+        self.membership = None
+        self.weight_ = None
+        self.n_iter = None
+        self.L2_distances = None
+        self.L2_p_distances = None
+        self.L2_p2_distances = None
+        self.y_norms = None
+        self.y_squared_norms = None
 
     ###########################
     def _check_fit_data(self, X):
@@ -200,15 +207,24 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         random_state = check_random_state(self.random_state)
         X = self._check_fit_data(X)
 
-        self.cluster_centers_, self.labels_, self.inertia_, \
-        self.n_iter_ = k_harmonic_means(
-            X, n_clusters=self.n_clusters, init=self.init,
-            n_init=self.n_init, max_iter=self.max_iter,
-            verbose=self.verbose,
-            precompute_distances=self.precompute_distances,
-            tol=self.tol, random_state=random_state,
-            copy_x=self.copy_x, n_jobs=self.n_jobs,
-            algorithm=self.algorithm, return_n_iter=True)
+        # Check if the model had fitted the data previously
+        if self.X != X:
+            self.X = X
+            self.x_squared_norms = row_norms(X, squared=True)
+            self.x_norms = np.sqrt(self.x_squared_norms,
+                                   out=self.x_squared_norms)
+
+            self.centroid, self.labels_, self.membership_, \
+            self.weight_, self.n_iter_, self.L2_distances_,\
+            self.L2_p_distances_, self.L2_p2_distances_,\
+            self.y_norms_, self.y_squared_norms_ = _k_harmonic_means(
+                X, n_clusters=self.n_clusters, n_init=self.n_init,
+                max_iter=self.max_iter, verbose=self.verbose,
+                x_norms=self.x_norms,
+                x_squared_norms=self.x_squared_norms,
+                tol=self.tol, random_state=random_state,
+                n_jobs=self.n_jobs)
+
         return self
 
     def fit_predict(self, X, y=None):
@@ -245,10 +261,164 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         check_is_fitted(self, 'cluster_centers_')
 
         X = self._check_test_data(X)
+
+        if X == self.X:
+            res = self.labels_
+        else :
+            x_squared_norm = row_norms(X, squared=True)
+            L2_distance = np.max(euclidean_distances(
+                X=X, Y=self.cluster_centers_, squared=False,
+                X_norm_squared=x_squared_norm,
+                Y_norm_squared=self.y_squared_norms_), self.e)
+
+            L2_p2_distance = L2_distance ** (self.p+2)
+            res = _calc_membership(X, self.cluster_centers_, self.p,
+                                   L2_p2_distance=L2_p2_distance,
+                                   e=self.e)
+
+        return res
+
+def _k_harmonic_means(X, n_clusters, n_init=10, max_iter=300,
+                      verbose=False, x_norms=None,
+                      x_squared_norms=None, tol=1e-4,
+                      random_state=None, n_jobs=1):
+    """K-harmonic means clustering algorithm.
+
+    """
+
+    random_state = check_random_state(random_state)
+
+    best_labels, best_inertia, best_centers = None, None, None
+    # init
+    centers = _init_centroids(X, n_clusters,
+                              random_state=random_state,
+                              x_squared_norms=x_squared_norms)
+    if verbose:
+        print("Initialization complete")
+
+    centroid = np.zeros(n_clusters, X.shape)
+
+    return centroid, labels, membership, weight_, n_iter_,\
+           L2_distance, L2_p_distance, L2_p2_distance, y_norms_,\
+           y_squared_norms
+
+
+def _init_centroids(X, k, init, random_state=None, x_squared_norms=None,
+                    init_size=None):
+    """Compute the initial centroids
+    Parameters
+    ----------
+    X: array, shape (n_samples, n_features)
+    k: int
+        number of centroids
+    init: {'k-means++', 'random' or ndarray or callable} optional
+        Method for initialization
+    random_state: integer or numpy.RandomState, optional
+        The generator used to initialize the centers. If an integer is
+        given, it fixes the seed. Defaults to the global numpy random
+        number generator.
+    x_squared_norms:  array, shape (n_samples,), optional
+        Squared euclidean norm of each data point. Pass it if you have it at
+        hands already to avoid it being recomputed here. Default: None
+    init_size : int, optional
+        Number of samples to randomly sample for speeding up the
+        initialization (sometimes at the expense of accuracy): the
+        only algorithm is initialized by running a batch KMeans on a
+        random subset of the data. This needs to be larger than k.
+    Returns
+    -------
+    centers: array, shape(k, n_features)
+    """
+    random_state = check_random_state(random_state)
+    n_samples = X.shape[0]
+
+    if x_squared_norms is None:
         x_squared_norms = row_norms(X, squared=True)
 
-        return _labels_inertia(X, x_squared_norms,
-                               self.cluster_centers_)[0]
+    if init_size is not None and init_size < n_samples:
+        if init_size < k:
+            warnings.warn(
+                "init_size=%d should be larger than k=%d. "
+                "Setting it to 3*k" % (init_size, k),
+                RuntimeWarning, stacklevel=2)
+            init_size = 3 * k
+        init_indices = random_state.randint(0, n_samples, init_size)
+        X = X[init_indices]
+        x_squared_norms = x_squared_norms[init_indices]
+        n_samples = X.shape[0]
+    elif n_samples < k:
+        raise ValueError(
+            "n_samples=%d should be larger than k=%d" % (n_samples, k))
+
+    if isinstance(init, string_types) and init == 'k-means++':
+        centers = _k_init(X, k, random_state=random_state,
+                          x_squared_norms=x_squared_norms)
+    elif isinstance(init, string_types) and init == 'random':
+        seeds = random_state.permutation(n_samples)[:k]
+        centers = X[seeds]
+    elif hasattr(init, '__array__'):
+        # ensure that the centers have the same dtype as X
+        # this is a requirement of fused types of cython
+        centers = np.array(init, dtype=X.dtype)
+    elif callable(init):
+        centers = init(X, k, random_state=random_state)
+        centers = np.asarray(centers, dtype=X.dtype)
+    else:
+        raise ValueError("the init parameter for the k-means should "
+                         "be 'k-means++' or 'random' or an ndarray, "
+                         "'%s' (type '%s') was passed." % (init, type(init)))
+
+    if sp.issparse(centers):
+        centers = centers.toarray()
+
+    _validate_center_shape(X, k, centers)
+    return centers
+
+
+def _calc_membership(X, centroid, p=3.5, L2_p2_distance=None, e=1e-8):
+    """Calculate the memberships of instances to existing clusters
+
+    Parameters
+    ----------
+    X : array-like or matrix, shape (n_samples, n_features)
+        The observations to cluster.
+    centroid : float ndarray with shape (k, n_features)
+        Centroids found when computing K-harmonic means.
+    p : int, default: 3.5
+        Power of the L^2 distance as the d(x,m) in KHMp.
+    L2_p2_distance : array-like or matrix, shape (n_instances,
+    n_centroids), float, default : None
+        Precomputed distances for speeding up the membership
+        calculations.
+    e : float, default: 1e-8
+        Small positive value necessary for avoiding zero denominators.
+
+    Return
+    ------
+    membership : float matrix with shape (n_samples, k)
+
+    """
+
+    k = centroid.shape[0]
+    n_samples = X.shape[0]
+    membership = np.zeros(shape=(n_samples,k),
+                          dtype=X.dtype)
+    if L2_p2_distance is None:
+
+        L2_distance = np.max(euclidean_distances(
+            X=X, Y=centroid, squared=False), e)
+        L2_p2_distance = L2_distance ** (p + 2)
+
+    distance = 1/L2_p2_distance
+    for i in range(n_samples):
+        denominator = np.sum(distance[i, :])
+        for j in range(k):
+            membership[i, j] = distance[i, j] / denominator
+
+    return membership
+
+
+
 
 
 def _labels_inertia(X, x_squared_norms, centers,
