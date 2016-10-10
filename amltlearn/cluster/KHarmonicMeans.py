@@ -4,8 +4,15 @@
 # Created on: 06/10/2016 17:22
 
 import numpy as np
+import scipy.sparse as sp
+
 from sklearn.base import BaseEstimator, ClusterMixin, TransformerMixin
 from sklearn.metrics.pairwise import euclidean_distances
+from sklearn.utils.extmath import row_norms, squared_norm
+from sklearn.utils import check_array
+from sklearn.utils import check_random_state
+from sklearn.utils.validation import FLOAT_DTYPES
+from sklearn.utils.validation import check_is_fitted
 from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestNeighbors
 
@@ -22,10 +29,10 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         The number of clusters to form as well as the number of
         centroids to generate.
     max_iter : int, default: 300
-        Maximum number of iterations of the k-harmonic means algorithm
-        for a single run.
+        Maximum number of iterations of the k-harmonic means
+        algorithm for a single run.
     n_init : int, default: 10
-        Number of time the k-means algorithm will be run with 
+        Number of time the k-means algorithm will be run with
         different centroid seeds. The final results will be the best
         output of n_init consecutive runs in terms of inertia.
     init : {'k-means++', 'random' or an ndarray}
@@ -35,7 +42,7 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         Notes in k_init for more details.
         'random': choose k observations (rows) at random from data for
         the initial centroids.
-        If an ndarray is passed, it should be of shape (n_clusters, 
+        If an ndarray is passed, it should be of shape (n_clusters,
         n_features) and gives the initial centers.
     algorithm : "auto", "full" or "elkan", default="auto"
         K-means algorithm to use. The classical EM-style algorithm is
@@ -62,7 +69,7 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         computing each of the n_init runs in parallel.
         If -1 all CPUs are used. If 1 is given, no parallel computing
         code is used at all, which is useful for debugging. For n_jobs
-        below -1, (n_cpus + 1 + n_jobs) are used. Thus for 
+        below -1, (n_cpus + 1 + n_jobs) are used. Thus for
         n_jobs = -2, all CPUs but one are used.
     random_state : integer or numpy.RandomState, optional
         The generator used to initialize the centers. If an integer is
@@ -73,10 +80,11 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
     copy_x : boolean, default True
         When pre-computing distances it is more numerically accurate
         to center the data first.  If copy_x is True, then the
-        original data is not modified. If False, the original data is modified, and put back before the function returns, but small
+        original data is not modified. If False, the original data is
+        modified, and put back before the function returns, but small
         numerical differences may be introduced by subtracting and
         then adding the data mean.
-    
+
     Attributes
     ----------
     cluster_centers_ : array, [n_clusters, n_features]
@@ -85,7 +93,7 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         Labels of each point
     inertia_ : float
         Sum of distances of samples to their closest cluster center.
-    
+
     See Also
     --------
     fuzzy k-means : different adaptation of k-means algorithm
@@ -93,35 +101,37 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
     Notes
     -----
     Objective function implemented [2]_:
-    .. math:: 
+    .. math::
     Notes
     ------
     The k-means problem is solved using Lloyd's algorithm.
-    The average complexity is given by O(k n T), were n is the number of
-    samples and T is the number of iteration.
+    The average complexity is given by O(k n T), were n is the number
+    of samples and T is the number of iteration.
     The worst case complexity is given by O(n^(k+2/p)) with
     n = n_samples, p = n_features. (D. Arthur and S. Vassilvitskii,
     'How slow is the k-means method?' SoCG2006)
-    In practice, the k-means algorithm is very fast (one of the fastest
-    clustering algorithms available), but it falls in local minima. That's why
-    it can be useful to restart it several times.
+    In practice, the k-means algorithm is very fast (one of the
+    fastest clustering algorithms available), but it falls in local
+    minima. That's why it can be useful to restart it several times.
     Distance function d(x,m), implemented for KHMp (see [2]_):
     .. math:: max(||x_i - c_j||, e)
     where the parameter e is to avoid zero denominators.
     Performance function implemented for KHMp was presented in [2]_.
-    The paramater p default value was set to 3.5, as that was the best value found by Zhang [2]_, who also stated that for high
+    The paramater p default value was set to 3.5, as that was the best
+    value found by Zhang [2]_, who also stated that for high
     dimensionality data ( > 2 dimensions), larger p values could be
     desired.
 
     References
     ----------
-    .. [1] J. MacQuenn. Some methods for classification and analysis of
-    multivariate observations. In L. M. LeCam and J. Neyman, editors,
-    Proceedings of the Fifth Berkeley Symposium on Mathematical Statistics
-    and Probability, volume 1, pages 281-297, Berkeley, CA, 1967. University
-    of California Press.
-    .. [2] B. Zhang. Generalized k-harmonic means – boosting in unsupervised
-    learning. Technical Report HPL-2000-137, Hewlett-Packard Labs, 2000.
+    .. [1] J. MacQuenn. Some methods for classification and analysis
+    of multivariate observations. In L. M. LeCam and J. Neyman,
+    editors, Proceedings of the Fifth Berkeley Symposium on
+    Mathematical Statistics and Probability, volume 1, pages 281-297,
+    Berkeley, CA, 1967. University of California Press.
+    .. [2] B. Zhang. Generalized k-harmonic means – boosting in
+    unsupervised learning. Technical Report HPL-2000-137,
+    Hewlett-Packard Labs, 2000.
 
     Examples
     --------
@@ -137,13 +147,14 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
     >>> kmeans.cluster_centers_
     array([[ 1.,  2.],
            [ 4.,  2.]])
-    
+
     """
 
     def __init__(self, n_clusters=8, init='k-means++', n_init=10,
-                 max_iter=300, tol=1e-4, p=3.5, e=1e-8, precompute_distances='auto',
-                 verbose=0, random_state=None, copy_x=True,
-                 n_jobs=1, algorithm='auto'):
+                 max_iter=300, tol=1e-4, p=3.5, e=1e-8,
+                 precompute_distances='auto', verbose=0,
+                 random_state=None, copy_x=True, n_jobs=1,
+                 algorithm='auto'):
 
         self.n_clusters = n_clusters
         self.init = init
@@ -162,10 +173,11 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
     ###########################
     def _check_fit_data(self, X):
         """Verify that the number of samples given is larger than k"""
-        X = check_array(X, accept_sparse='csr', dtype=[np.float64, np.float32])
+        X = check_array(X, accept_sparse='csr', dtype=[np.float64,
+                                                       np.float32])
         if X.shape[0] < self.n_clusters:
-            raise ValueError("n_samples=%d should be >= n_clusters=%d" % (
-                X.shape[0], self.n_clusters))
+            raise ValueError("n_samples=%d should be >= n_clusters=%d"
+                             % (X.shape[0], self.n_clusters))
         return X
 
     def _check_test_data(self, X):
@@ -176,11 +188,11 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
             raise ValueError("Incorrect number of features. "
                              "Got %d features, expected %d" % (
                                  n_features, expected_n_features))
-
         return X
 
     def fit(self, X, y=None):
-        """Compute k-means clustering.
+        """Compute k-harmonic means clustering.
+
         Parameters
         ----------
         X : array-like or sparse matrix, shape=(n_samples, n_features)
@@ -188,34 +200,151 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         random_state = check_random_state(self.random_state)
         X = self._check_fit_data(X)
 
-        self.cluster_centers_, self.labels_, self.inertia_, self.n_iter_ = \
-            k_means(
-                X, n_clusters=self.n_clusters, init=self.init,
-                n_init=self.n_init, max_iter=self.max_iter, verbose=self.verbose,
-                precompute_distances=self.precompute_distances,
-                tol=self.tol, random_state=random_state, copy_x=self.copy_x,
-                n_jobs=self.n_jobs, algorithm=self.algorithm,
-                return_n_iter=True)
+        self.cluster_centers_, self.labels_, self.inertia_, \
+        self.n_iter_ = k_harmonic_means(
+            X, n_clusters=self.n_clusters, init=self.init,
+            n_init=self.n_init, max_iter=self.max_iter,
+            verbose=self.verbose,
+            precompute_distances=self.precompute_distances,
+            tol=self.tol, random_state=random_state,
+            copy_x=self.copy_x, n_jobs=self.n_jobs,
+            algorithm=self.algorithm, return_n_iter=True)
         return self
-    
-    ############################
 
-    def fit(self, X):
-        """Clusters the examples
+    def fit_predict(self, X, y=None):
+        """Compute cluster centers and predict cluster index for each
+        sample.
 
-        :param X:
-        :return:
+        Convenience method; equivalent to calling fit(X) followed by
+        predict(X).
+
         """
 
-        if self.algorithm == 'classical':
-            self.cluster_centers_, self.labels_, self.inertia_ = \
-                self._fit_process(X)
-        # elif self.algorithm == 'bagirov':
-            # self.cluster_centers_, self.labels_, self.inertia_ = \
-                # self._fit_process_bagirov(
-                    # X)
+        return self.fit(X).labels_
 
-        return self
+    def predict(self, X):
+        """Predict the closest cluster each sample in X belongs to.
+
+        In the vector quantization literature, `cluster_centers_` is
+        called the code book and each value returned by `predict` is
+        the index of the closest code in the code book.
+
+        Parameters
+        ----------
+        X : {array-like, sparse matrix}, shape = [n_samples,
+        n_features]
+            New data to predict.
+
+        Returns
+        -------
+        labels : array, shape [n_samples,]
+            Index of the cluster each sample belongs to.
+
+        """
+
+        check_is_fitted(self, 'cluster_centers_')
+
+        X = self._check_test_data(X)
+        x_squared_norms = row_norms(X, squared=True)
+
+        return _labels_inertia(X, x_squared_norms,
+                               self.cluster_centers_)[0]
+
+
+def _labels_inertia(X, x_squared_norms, centers,
+                    precompute_distances=True, distances=None):
+    # TODO: Default to allways precompute distances (get rid from it)
+    """E step of the K-harmonic means algorithm.
+
+    Compute the labels and the inertia of the given samples and
+    centers. This will compute the distances in-place.
+
+    Parameters
+    ----------
+    X: float64 array-like or CSR sparse matrix, shape (n_samples,
+    n_features)
+        The input samples to assign to the labels.
+    x_squared_norms: array, shape (n_samples,)
+        Precomputed squared euclidean norm of each data point, to
+        speed up computations.
+    centers: float array, shape (k, n_features)
+        The cluster centers.
+    precompute_distances : boolean, default: True
+        Precompute distances (faster but takes more memory).
+    distances: float array, shape (n_samples,)
+        Pre-allocated array to be filled in with each sample's
+        distance to the closest center.
+
+    Returns
+    -------
+    labels: int array of shape(n)
+        The resulting assignment
+    inertia : float
+        Sum of distances of samples to their closest cluster
+        center.
+
+    """
+
+    n_samples = X.shape[0]
+    # set the default value of centers to -1 to be able to detect any
+    # anomaly easily
+    labels = -np.ones(n_samples, np.int32)
+    if distances is None:
+        distances = np.zeros(shape=(0,), dtype=X.dtype)
+    # distances will be changed in-place
+    return _labels_inertia_precompute_dense(X, x_squared_norms,
+                                            centers, distances)
+
+
+def _labels_inertia_precompute_dense(X, x_squared_norms, centers,
+                                     distances):
+    """Compute labels and inertia using a full distance matrix.
+
+    This will overwrite the 'distances' array in-place.
+
+    Parameters
+    ----------
+    X : numpy array, shape (n_sample, n_features)
+        Input data.
+    x_squared_norms : numpy array, shape (n_samples,)
+        Precomputed squared norms of X.
+    centers : numpy array, shape (n_clusters, n_features)
+        Cluster centers which data is assigned to.
+    distances : numpy array, shape (n_samples,)
+        Pre-allocated array in which distances are stored.
+
+    Returns
+    -------
+    labels : numpy array, dtype=np.int, shape (n_samples,)
+        Indices of clusters that samples are assigned to.
+    inertia : float
+        Sum of distances of samples to their closest cluster center.
+
+    """
+
+    n_samples = X.shape[0]
+    k = centers.shape[0]
+    all_distances = euclidean_distances(centers, X, x_squared_norms,
+                                        squared=False)
+    # TODO: Modify distances calculation
+    labels = np.empty(n_samples, dtype=np.int32)
+    labels.fill(-1)
+    mindist = np.empty(n_samples)
+    mindist.fill(np.infty)
+    for center_id in range(k):
+        dist = all_distances[center_id]
+        labels[dist < mindist] = center_id
+        mindist = np.minimum(dist, mindist)
+    if n_samples == distances.shape[0]:
+        # distances will be changed in-place
+        distances[:] = mindist
+    inertia = mindist.sum()
+    return labels, inertia
+
+
+
+    ############################
+
 
     def predict(self, X):
         """
@@ -375,22 +504,22 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
 
     def _harmonic_distance(self, X, C):
         """Calculate the harmonic distance between two points
-        
+
         Parameters
         ----------
         X : array_like
             Data instance
         C : array_like
             Center coordinates
-        
+
         Return
         ------
         dist : float
             Harmonic distance
         """
-        dist = max(sqrt(sum((X-C).^2)), self.e)
+        dist = np.max(skle, self.e)
         return dist
-        
+
     @staticmethod
     def _find_nearest_cluster(examp, centers):
         """
