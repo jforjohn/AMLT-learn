@@ -8,7 +8,7 @@ import scipy.sparse as sp
 
 from sklearn.base import BaseEstimator, ClusterMixin, TransformerMixin
 from sklearn.metrics.pairwise import euclidean_distances
-from sklearn.utils.extmath import row_norms, squared_norm
+from sklearn.utils.extmath import row_norms
 from sklearn.externals.joblib import Parallel
 from sklearn.externals.joblib import delayed
 from sklearn.utils import check_array
@@ -16,8 +16,6 @@ from sklearn.utils import check_random_state
 from sklearn.utils.validation import FLOAT_DTYPES
 from sklearn.utils.validation import check_is_fitted
 from sklearn.utils.validation import as_float_array
-from sklearn.cluster import KMeans
-from sklearn.neighbors import NearestNeighbors
 from sklearn.utils.sparsefuncs import mean_variance_axis
 
 
@@ -136,23 +134,23 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
     .. [2] B. Zhang. Generalized k-harmonic means – boosting in
     unsupervised learning. Technical Report HPL-2000-137,
     Hewlett-Packard Labs, 2000.
-
-    Examples
-    --------
-    >>> from sklearn.cluster import KMeans
-    >>> import numpy as np
-    >>> X = np.array([[1, 2], [1, 4], [1, 0],
-    ...               [4, 2], [4, 4], [4, 0]])
-    >>> kmeans = KMeans(n_clusters=2, random_state=0).fit(X)
-    >>> kmeans.labels_
-    array([0, 0, 0, 1, 1, 1], dtype=int32)
-    >>> kmeans.predict([[0, 0], [4, 4]])
-    array([0, 1], dtype=int32)
-    >>> kmeans.cluster_centers_
-    array([[ 1.,  2.],
-           [ 4.,  2.]])
-
-    """
+          """
+    # Examples
+    # --------
+    # >>> from sklearn.cluster import KMeans
+    # >>> import numpy as np
+    # >>> X = np.array([[1, 2], [1, 4], [1, 0],
+    # ...               [4, 2], [4, 4], [4, 0]])
+    # >>> kmeans = KMeans(n_clusters=2, random_state=0).fit(X)
+    # >>> kmeans.labels_
+    # array([0, 0, 0, 1, 1, 1], dtype=int32)
+    # >>> kmeans.predict([[0, 0], [4, 4]])
+    # array([0, 1], dtype=int32)
+    # >>> kmeans.cluster_centers_
+    # array([[ 1.,  2.],
+    #        [ 4.,  2.]])
+    #
+    # """
 
     def __init__(self, n_clusters=8, init='k-means++', n_init=10,
                  max_iter=300, tol=1e-4, p=3.5, e=1e-8,
@@ -206,17 +204,18 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         random_state = check_random_state(self.random_state)
         X = self._check_fit_data(X)
         tol = _tolerance(X, self.tol)
+        print(type(tol))
+        print(tol)
+        print(type(self.tol))
+        print(self.tol)
 
-        # Check if the model had fitted the data previously
-        if self.X != X:
-            self.X = X
-
-            self.centroid, self.labels_, self.performance,\
-            self.n_iter = k_harmonic_means(
-                X, n_clusters=self.n_clusters, n_init=self.n_init,
-                max_iter=self.max_iter, verbose=self.verbose,
-                tol=tol, random_state=random_state,
-                n_jobs=self.n_jobs)
+        self.centroid, self.labels_, self.performance, self.n_iter =\
+            k_harmonic_means(X, n_clusters=self.n_clusters,
+                             n_init=self.n_init,
+                             max_iter=self.max_iter,
+                             verbose=self.verbose, tol=tol,
+                             random_state=random_state,
+                             n_jobs=self.n_jobs)
 
         return self
 
@@ -339,9 +338,9 @@ def k_harmonic_means(X, n_clusters, n_init=10, max_iter=300,
     # precompute squared and non-squared norms of data points
     x_squared_norm = row_norms(X, squared=True)
 
-    best_labels = None
-    best_inertia = None
-    best_centers = None
+    best_membership = None
+    best_performance = None
+    best_centroid = None
     best_n_iter = None
 
     # By the moment just one version the k-harmonic means is
@@ -355,17 +354,18 @@ def k_harmonic_means(X, n_clusters, n_init=10, max_iter=300,
         # per thread).
         for it in range(n_init):
             # run a k-means once
-            membership, inertia, centroid, n_iter = \
+            centroid, membership, n_iter, performance = \
                 kmeans_single(X, n_clusters, max_iter=max_iter,
                               verbose=verbose,
                               x_squared_norm=x_squared_norm,
                               tol=tol, random_state=random_state,
                               p=p, e=e)
             # determine if these results are the best so far
-            if best_inertia is None or inertia < best_inertia:
-                best_labels = membership.copy()
-                best_centers = centroid.copy()
-                best_inertia = inertia
+            if best_performance is None or performance < \
+                    best_performance:
+                best_membership = membership.copy()
+                best_centroid = centroid.copy()
+                best_performance = performance
                 best_n_iter = n_iter
     else:
         # parallelisation of k-harmonic means runs
@@ -380,17 +380,18 @@ def k_harmonic_means(X, n_clusters, n_init=10, max_iter=300,
                                    e=e)
             for seed in seeds)
         # Get results with the lowest inertia
-        membership, inertia, centroid, n_iter = zip(*results)
-        best = np.argmin(inertia)
-        best_labels = membership[best]
-        best_inertia = inertia[best]
-        best_centers = centroid[best]
+        centroid, membership, n_iter, performance = zip(*results)
+        best = np.argmin(performance)
+        best_membership = membership[best]
+        best_performance = performance[best]
+        best_centroid = centroid[best]
         best_n_iter = n_iter[best]
 
     if not sp.issparse(X):
-        best_centers += X_mean
+        best_centroid += X_mean
 
-    return best_centers, best_labels, best_inertia, best_n_iter
+    return best_centroid, best_membership, best_performance, \
+           best_n_iter
 
 
 def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
@@ -405,7 +406,7 @@ def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
 
     """
 
-    if not x_squared_norm:
+    if x_squared_norm is None:
         x_squared_norm = row_norms(X, squared=True)
 
     random_state = check_random_state(random_state)
@@ -422,17 +423,17 @@ def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
     # up the overall computation cost and pre-calculations
     membership = np.zeros(shape=(X.shape[0], n_clusters),
                           dtype=float)
-    weight = membership.copy()
     # pre-calculations
     y_squared_norm = row_norms(centroid, squared=True)
     # shape (n_instances, n_centroids)
-    L2_distance = np.max(
-        euclidean_distances(X=X, Y=centroid,
-                            Y_norm_squared=y_squared_norm,
-                            squared=False,
-                            X_norm_squared=x_squared_norm), e)
+    L2_distance = euclidean_distances(X=X, Y=centroid,
+                                      Y_norm_squared=y_squared_norm,
+                                      squared=False,
+                                      X_norm_squared=x_squared_norm)
+    L2_distance = np.maximum(L2_distance, e)
     inv_L2_p_dist = 1 / (L2_distance ** p)
     inv_L2_p2_dist = 1 / (L2_distance ** (p + 2))
+
     performance = _evaluate_performance(X, centroid, inv_L2_p_dist,
                                         p, e)
 
@@ -449,28 +450,30 @@ def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
         performance_old = performance
 
         # Pre-calculations
-        sum_dist_p2 = np.sum(inv_L2_p2_dist, axis=1)
-        sum_dist_p = (np.sum(inv_L2_p_dist, axis=1)) ** 2
+        sum_dist_p2 = np.array([np.sum(inv_L2_p2_dist, axis=1)]).T
+        sum_dist_p = np.array([(np.sum(inv_L2_p_dist, axis=1))
+                               ** 2]).T
         membership = np.divide(inv_L2_p2_dist, sum_dist_p2)
         div_weight = np.divide(sum_dist_p2, sum_dist_p)
         m_k_i_numerator = np.multiply(membership, div_weight)
         m_k_i_denominator = np.sum(m_k_i_numerator, axis=0)
-        m_k_i_numerator = np.multiply(X, m_k_i_numerator)
+        m_k_i_numerator = np.array([np.multiply(X, np.array([
+            m_k_i_numerator[:, c]]).T) for c in range(
+            m_k_i_numerator.shape[1])])
         mk_numerator = np.sum(m_k_i_numerator, axis=0)
         m_k_denominator = np.sum(m_k_i_denominator, axis=0)
         m_k = np.divide(mk_numerator, m_k_denominator)
-        # m_k_i = np.divide(np.sum(np.multiply(X,m_k_i_numerator),
-        #                          axis=0), np.sum(m_k_i_denominator),
-        #                   0)
 
-        print('Miraculous of lenght: '.join(str(m_k.shape[0])))
-
+        print('Miraculous of lenght: ')
+        print(m_k.shape)
 
         # Calculate distances
         y_squared_norm = row_norms(centroid_old, squared=True)
-        y_norm = np.sqrt(y_squared_norm)
-        L2_distance = np.max(euclidean_distances(
-            X=X, Y=centroid, squared=False), e)
+        L2_distance = np.maximum(euclidean_distances(X=X, Y=centroid,
+                                      Y_norm_squared=y_squared_norm,
+                                      squared=False,
+                                      X_norm_squared=x_squared_norm),
+                                 e)
         inv_L2_p_dist = 1 / (L2_distance ** (p))
         inv_L2_p2_dist = 1 / (L2_distance ** (p + 2))
 
@@ -522,9 +525,9 @@ def _evaluate_performance(X, centroid, inv_distance=None, p=3.5,
 
     """
 
-    if not inv_distance:
+    if inv_distance is None:
         # shape (n_instances, n_centroids)
-        L2_distance = np.max(euclidean_distances(X=X, Y=centroid,
+        L2_distance = np.maximum(euclidean_distances(X=X, Y=centroid,
                                                  squared=False), e)
         inv_distance = 1 / (L2_distance ** p)
 
@@ -566,10 +569,10 @@ def _init_centroids(X, k, random_state=None):
     centers = X[seeds]
 
     if sp.issparse(centers):
-        print("line 339: it was sparse")
+        print("line 570: it was sparse")
         centers = centers.toarray()
     else:
-        print("line 339: it was NOT sparse")
+        print("line 570: it was NOT sparse")
 
     _validate_center_shape(X, k, centers)
 
@@ -615,11 +618,10 @@ def _calc_membership(X, centroid, p=3.5, L2_p2_distance=None, e=1e-8):
 
     k = centroid.shape[0]
     n_samples = X.shape[0]
-    membership = np.zeros(shape=(n_samples,k),
-                          dtype=X.dtype)
+    membership = np.zeros(shape=(n_samples,k), dtype=X.dtype)
     if L2_p2_distance is None:
-        L2_distance = np.max(euclidean_distances(
-            X=X, Y=centroid, squared=False), e)
+        L2_distance = np.maximum(euclidean_distances(
+            X=centroid, Y=X, squared=False), e)
         L2_p2_distance = L2_distance ** (p + 2)
 
     distance = 1/L2_p2_distance
@@ -633,7 +635,8 @@ def _calc_membership(X, centroid, p=3.5, L2_p2_distance=None, e=1e-8):
 if __name__ == "__main__":
     print('Start')
     X = np.array([[1, 2], [1, 4], [1, 0], [4, 2], [4, 4], [4, 0]])
-    k_means = KHarmonicMeans(n_clusters=2, random_state=0).fit(X)
+    print(X)
+    k_means = KHarmonicMeans(n_clusters=3).fit(X)
     print('Finish')
     print(k_means.labels_)
     print(k_means.predict([[0, 0], [4, 4]]))
