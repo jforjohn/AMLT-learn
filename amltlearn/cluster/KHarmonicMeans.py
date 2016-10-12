@@ -640,8 +640,9 @@ def _evaluate_performance(X, centroid, inv_distance=None, p=3.5,
     centroid : float ndarray with shape (k, n_features)
         Centroids found when computing K-harmonic means.
     p : int, default: 3.5
-        Power of the L^2 distance as the d(x,m) in KHMp.
-    inv_L2_p2_distance : array-like or matrix, shape (n_instances,
+        Power of the KHMp's distance formula, which is:
+        .. math :: d(x, m) = (L2-distance)^p
+    inv_distance : array-like or matrix, shape (n_instances,
     n_centroids), float, default : None
         Precomputed inverted-distances for speeding up the membership
         calculations.
@@ -666,7 +667,9 @@ def _evaluate_performance(X, centroid, inv_distance=None, p=3.5,
 
 
 def _init_centroids(X, n_centroid, random_state=None):
-    """Compute the initial centroids
+    """Compute the initial centroids.
+
+    Random initialization of the centroids.
 
     Parameters
     ----------
@@ -680,7 +683,7 @@ def _init_centroids(X, n_centroid, random_state=None):
 
     Returns
     -------
-    centers: array, shape(k, n_features)
+    centroid: array, shape(k, n_features)
 
     """
 
@@ -697,17 +700,17 @@ def _init_centroids(X, n_centroid, random_state=None):
     return centroid
 
 
-def _validate_center_shape(X, n_centers, centers):
+def _validate_center_shape(X, n_centers, centroid):
     """Check if centers is compatible with X and n_centers"""
-    if len(centers) != n_centers:
+    if len(centroid) != n_centers:
         raise ValueError('The shape of the initial centers (%s) '
                          'does not match the number of clusters %i'
-                         % (centers.shape, n_centers))
+                         % (centroid.shape, n_centers))
     if centers.shape[1] != X.shape[1]:
         raise ValueError(
             "The number of features of the initial centers %s "
             "does not match the number of features of the data %s."
-            % (centers.shape[1], X.shape[1]))
+            % (centroid.shape[1], X.shape[1]))
 
 
 def _calc_membership(X, centroid, p=3.5, inv_L2_p2_distance=None,
