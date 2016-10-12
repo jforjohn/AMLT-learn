@@ -17,7 +17,6 @@ from sklearn.utils.validation import FLOAT_DTYPES
 from sklearn.utils.validation import check_is_fitted
 from sklearn.utils.validation import as_float_array
 from sklearn.utils.sparsefuncs import mean_variance_axis
-import time
 
 
 class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
@@ -445,8 +444,7 @@ def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
                                         p, e)
 
     if verbose:
-        print('Initialization complete, with initial performance: '
-              ''.join(str(performance)))
+        print('Initialization complete')
 
     # iterations
     iter_ = 0
@@ -490,12 +488,12 @@ def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
                                             inv_L2_p_dist, p, e)
         performance_increment = performance_old - performance
 
-        print('performance old: ')
-        print(performance_old)
-        print('performance increment: ')
-        print(performance_increment)
-        print('iter: ')
-        print(iter_)
+        # print('performance old: ')
+        # print(performance_old)
+        # print('performance increment: ')
+        # print(performance_increment)
+        # print('iter: ')
+        # print(iter_)
 
         iter_ += 1
 
@@ -540,8 +538,8 @@ def _evaluate_performance(X, centroid, inv_distance=None, p=3.5,
     # # print(inv_distance)
     # print((np.sum(inv_distance, axis=1)).shape)
     # print(np.sum(inv_distance, axis=1))
-    print('Performance: ')
-    print(performance)
+    # print('Performance: ')
+    # print(performance)
 
     return performance
 
@@ -641,104 +639,121 @@ def _calc_membership(X, centroid, p=3.5, L2_p2_distance=None, e=1e-8):
 
 
 if __name__ == "__main__":
+    """Testing the clustering algorithm on the iris data set"""
+    
     import matplotlib.pyplot as plt
-    from sklearn import datasets
+    from mpl_toolkits.mplot3d import Axes3D
+    from sklearn.cluster import KMeans
     import sklearn.metrics as sm
-    import pandas as pd
-    import numpy as np
+    from sklearn import datasets
     import warnings
 
+    # It is interesting to suppress warnings since there is an
+    # internal issue with the 'euclidean_distances' sklearn
+    # function, when it tries to check the precomputed squared
+    # norms, the array checking function raises a warning of
+    # deprecated method for 1-d arrays. Since most times the
+    # precomputed norms are used for speeding up the code, in this
+    # test the warnings are suppressed, for increasing readability
+    # on the results.
     warnings.filterwarnings("ignore")
 
-    # import some data to play with
+    print('Starting the integrated simple test of K-harmonic means '
+          'clustering algorithm, implemented for the AMLT subject.'
+          '\n\nThis test will run the mentioned algorithm '
+          'for classifying the iris data set in 3 clusters; the '
+          'K-means standard method, with the equivalent '
+          'configuration; and finally will show 3 plots:\n    '
+          '1-KHarmonic clustering result\n    2-KMeans clustering '
+          'result\n    3-Ground truth of the iris data.')
+
+    np.random.seed(5)
+
+    centers = [[1, 1], [-1, -1], [1, -1]]
     iris = datasets.load_iris()
+    X = iris.data
+    y = iris.target
 
-    # Store the inputs as a Pandas Dataframe and set the column names
-    x = pd.DataFrame(iris.data)
-    x.columns = ['Sepal_Length', 'Sepal_Width', 'Petal_Length',
-                 'Petal_Width']
+    # Add further clustering algorithms or configurations as
+    # elements of the 'estimators' list, in order to compare the
+    # their performance, by analysing the retrieved results on the
+    # well-known iris data set. Be aware that this simple test is
+    # prepared for plotting just 3 clusters, if more are desired
+    # take into account that the labels might be in a different
+    # order and this code wont find it, though it should be done
+    # manually.
+    estimators = {'KHarmonicMeans': KHarmonicMeans(n_clusters=3),
+                  'KMeans': KMeans(n_clusters=3)}
 
-    y = pd.DataFrame(iris.target)
-    y.columns = ['Targets']
+    best_order = None
+    fignum = 1
+    for name, est in estimators.items():
+        print('\nClustering the iris data set by the ' + str(name)
+              + ' clustering algorithm')
+        fig = plt.figure(fignum, figsize=(4, 3))
+        plt.clf()
+        ax = Axes3D(fig, rect=[0, 0, .95, 1], elev=48, azim=134)
 
-    # Set the size of the plot
-    plt.figure(figsize=(14, 7))
+        plt.cla()
+        est.fit(X)
+        labels = est.labels_
 
-    # Create a colormap
-    colormap = np.array(['red', 'lime', 'black'])
+        best_predict_y = labels
+        best_accuracy = 0
+        best_order = [0, 1, 2]
+        orders = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0],
+                  [2, 0, 1], [2, 1, 0]]
+        for order in orders:
+            predict_y = np.choose(est.labels_, order).astype(np.int64)
+            accuracy = sm.accuracy_score(y, predict_y)
+            if accuracy > best_accuracy:
+                best_accuracy = accuracy
+                best_predict_y = predict_y
+                best_order = order
 
-    # Plot Sepal
-    plt.subplot(1, 2, 1)
-    plt.scatter(x.Sepal_Length, x.Sepal_Width, c=colormap[y.Targets],
-                s=40)
-    plt.title('Sepal')
+        print('Accuracy: ' + str(sm.accuracy_score(y,
+                                                   best_predict_y)))
+        print('Confusion Matrix: ')
+        print(sm.confusion_matrix(y, best_predict_y))
 
-    plt.subplot(1, 2, 2)
-    plt.scatter(x.Petal_Length, x.Petal_Width, c=colormap[y.Targets],
-                s=40)
-    plt.title('Petal')
+        ax.scatter(X[:, 3], X[:, 0], X[:, 2],
+                   c=best_predict_y.astype(np.float))
 
-    # K Means Cluster
-    model = KHarmonicMeans(n_clusters=3)
-    model.fit(x)
+        ax.w_xaxis.set_ticklabels([])
+        ax.w_yaxis.set_ticklabels([])
+        ax.w_zaxis.set_ticklabels([])
+        ax.set_xlabel('Petal width')
+        ax.set_ylabel('Sepal length')
+        ax.set_zlabel('Petal length')
+        fignum += 1
 
-    # This is what KMeans thought
-    print(model.labels_)
+    # Plot the ground truth
+    fig = plt.figure(fignum, figsize=(4, 3))
+    plt.clf()
+    ax = Axes3D(fig, rect=[0, 0, .95, 1], elev=48, azim=134)
 
-    # View the results
-    # Set the size of the plot
-    plt.figure(figsize=(14, 7))
+    plt.cla()
 
-    # Create a colormap
-    colormap = np.array(['red', 'lime', 'black'])
+    for name, label in [('Setosa', 0),
+                        ('Versicolour', 1),
+                        ('Virginica', 2)]:
+        ax.text3D(X[y == label, 3].mean(),
+                  X[y == label, 0].mean() + 1.5,
+                  X[y == label, 2].mean(), name,
+                  horizontalalignment='center',
+                  bbox=dict(alpha=.5, edgecolor='w', facecolor='w'))
+    # Reorder the labels to have colors matching the cluster results
+    y = np.choose(y, [0, 1, 2]).astype(np.float)
+    ax.scatter(X[:, 3], X[:, 0], X[:, 2], c=y)
 
-    # Plot the Original Classifications
-    plt.subplot(1, 2, 1)
-    plt.scatter(x.Petal_Length, x.Petal_Width, c=colormap[y.Targets],
-                s=40)
-    plt.title('Real Classification')
+    ax.w_xaxis.set_ticklabels([])
+    ax.w_yaxis.set_ticklabels([])
+    ax.w_zaxis.set_ticklabels([])
+    ax.set_xlabel('Petal width')
+    ax.set_ylabel('Sepal length')
+    ax.set_zlabel('Petal length')
 
-    # Plot the Models Classifications
-    plt.subplot(1, 2, 2)
-    plt.scatter(x.Petal_Length, x.Petal_Width,
-                c=colormap[model.labels_], s=40)
-    plt.title('K Mean Classification')
+    print('\nEnd of the simple test.')
+    plt.show()
 
-    # The fix, we convert all the 1s to 0s and 0s to 1s.
-    predY = np.choose(model.labels_, [1, 0, 2]).astype(np.int64)
-    print(model.labels_)
-    print(predY)
-
-    # View the results
-    # Set the size of the plot
-    plt.figure(figsize=(14, 7))
-
-    # Create a colormap
-    colormap = np.array(['red', 'lime', 'black'])
-
-    # Plot Orginal
-    plt.subplot(1, 2, 1)
-    plt.scatter(x.Petal_Length, x.Petal_Width, c=colormap[y.Targets],
-                s=40)
-    plt.title('Real Classification')
-
-    # Plot Predicted with corrected values
-    plt.subplot(1, 2, 2)
-    plt.scatter(x.Petal_Length, x.Petal_Width, c=colormap[predY],
-                s=40)
-    plt.title('K Mean Classification')
-    plt.plot()
-
-    # Performance Metrics
-    print('Performance Metrics')
-    print(sm.accuracy_score(y, predY))
-
-    # Confusion Matrix
-    print('Confusion Matrix')
-    print(sm.confusion_matrix(y, predY))
-
-    # X = np.array([[1, 2], [1, 4], [1, 0], [4, 2], [4, 4], [4, 0]])
-    # k_means = KHarmonicMeans(n_clusters=3).fit(X)
-    # print(k_means.labels_)
-    # print(k_means.predict([[0, 0], [4, 4]]))
-    # print(k_means.centroid)
+# EOF
