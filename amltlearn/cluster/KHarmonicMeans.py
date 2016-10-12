@@ -17,6 +17,7 @@ from sklearn.utils.validation import FLOAT_DTYPES
 from sklearn.utils.validation import check_is_fitted
 from sklearn.utils.validation import as_float_array
 from sklearn.utils.sparsefuncs import mean_variance_axis
+import time
 
 
 class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
@@ -134,23 +135,23 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
     .. [2] B. Zhang. Generalized k-harmonic means – boosting in
     unsupervised learning. Technical Report HPL-2000-137,
     Hewlett-Packard Labs, 2000.
-          """
-    # Examples
-    # --------
-    # >>> from sklearn.cluster import KMeans
-    # >>> import numpy as np
-    # >>> X = np.array([[1, 2], [1, 4], [1, 0],
-    # ...               [4, 2], [4, 4], [4, 0]])
-    # >>> kmeans = KMeans(n_clusters=2, random_state=0).fit(X)
-    # >>> kmeans.labels_
-    # array([0, 0, 0, 1, 1, 1], dtype=int32)
-    # >>> kmeans.predict([[0, 0], [4, 4]])
-    # array([0, 1], dtype=int32)
-    # >>> kmeans.cluster_centers_
-    # array([[ 1.,  2.],
-    #        [ 4.,  2.]])
-    #
-    # """
+
+    Examples
+    --------
+    >>> from sklearn.cluster import KMeans
+    >>> import numpy as np
+    >>> X = np.array([[1, 2], [1, 4], [1, 0],
+    ...               [4, 2], [4, 4], [4, 0]])
+    >>> kmeans = KMeans(n_clusters=2, random_state=0).fit(X)
+    >>> kmeans.labels_
+    array([0, 0, 0, 1, 1, 1], dtype=int32)
+    >>> kmeans.predict([[0, 0], [4, 4]])
+    array([0, 1], dtype=int32)
+    >>> kmeans.cluster_centers_
+    array([[ 1.,  2.],
+           [ 4.,  2.]])
+
+    """
 
     def __init__(self, n_clusters=8, init='k-means++', n_init=10,
                  max_iter=300, tol=1e-4, p=3.5, e=1e-8,
@@ -169,12 +170,15 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         self.e = e
 
         self.centroid = None
-        self.labels_ = None
+        self.membership = None
         self.n_iter = None
         self.performance = None
+        self.labels_ = None
+        self.Y_squared_norm_ = None
 
     def _check_fit_data(self, X):
         """Verify that the number of samples given is larger than k"""
+
         X = check_array(X, accept_sparse='csr', dtype=[np.float64,
                                                        np.float32])
         if X.shape[0] < self.n_clusters:
@@ -183,6 +187,8 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         return X
 
     def _check_test_data(self, X):
+        """Check consistency of data in array"""
+
         X = check_array(X, accept_sparse='csr', dtype=FLOAT_DTYPES)
         n_samples, n_features = X.shape
         expected_n_features = self.centroid.shape[1]
@@ -204,19 +210,16 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         random_state = check_random_state(self.random_state)
         X = self._check_fit_data(X)
         tol = _tolerance(X, self.tol)
-        print(type(tol))
-        print(tol)
-        print(type(self.tol))
-        print(self.tol)
 
-        self.centroid, self.labels_, self.performance, self.n_iter =\
+        self.centroid, self.membership, self.performance, self.n_iter = \
             k_harmonic_means(X, n_clusters=self.n_clusters,
                              n_init=self.n_init,
                              max_iter=self.max_iter,
-                             verbose=self.verbose, tol=tol,
+                             verbose=self.verbose, tol=float(tol),
                              random_state=random_state,
                              n_jobs=self.n_jobs)
-
+        self.labels_ = _get_labels(self.membership)
+        self.Y_squared_norm_ = row_norms(self.centroid, squared=True)
         return self
 
     def fit_predict(self, X, y=None):
@@ -255,25 +258,29 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
 
         """
 
-        check_is_fitted(self, 'cluster_centers_')
+        check_is_fitted(self, 'centroid')
 
         X = self._check_test_data(X)
+        Y = self.centroid
 
-        if X == self.X:
-            res = self.labels_
-        else :
-            x_squared_norm = row_norms(X, squared=True)
-            L2_distance = np.max(euclidean_distances(
-                X=X, Y=self.cluster_centers_, squared=False,
-                X_norm_squared=x_squared_norm,
-                Y_norm_squared=self.y_squared_norms_), self.e)
+        x_squared_norm = row_norms(X, squared=True)
+        y_squared_norm = row_norms(Y, squared=True)
 
-            L2_p2_distance = L2_distance ** (self.p+2)
-            res = _calc_membership(X, self.cluster_centers_, self.p,
-                                   L2_p2_distance=L2_p2_distance,
-                                   e=self.e)
+        L2_distance = np.maximum(euclidean_distances(
+            X=X, Y=Y, Y_norm_squared=y_squared_norm, squared=False,
+            X_norm_squared=x_squared_norm), self.e)
 
-        return res
+        L2_p2_distance = L2_distance ** (self.p+2)
+        membership = _calc_membership(X, self.centroid, self.p,
+                                      L2_p2_distance=L2_p2_distance,
+                                      e=self.e)
+        return _get_labels(membership)
+
+
+def _get_labels(membership):
+    """Show cluster with higher membership per each sample"""
+
+    return np.argmax(membership, axis=1)
 
 
 def _tolerance(X, tol):
@@ -391,7 +398,7 @@ def k_harmonic_means(X, n_clusters, n_init=10, max_iter=300,
         best_centroid += X_mean
 
     return best_centroid, best_membership, best_performance, \
-           best_n_iter
+        best_n_iter
 
 
 def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
@@ -411,9 +418,9 @@ def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
 
     random_state = check_random_state(random_state)
 
-    best_labels = None
-    best_inertia = None
-    best_centers = None
+    performance_old = None
+    centroid_old = None
+    membership_old = None
 
     # init
     centroid = _init_centroids(X, n_clusters,
@@ -443,11 +450,12 @@ def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
 
     # iterations
     iter_ = 0
-    performance_incremment = np.inf
-    while iter_ < max_iter and performance_incremment > tol:
+    performance_increment = np.inf
+    while iter_ < max_iter and performance_increment > tol:
         # Save state
-        centroid_old = centroid.copy()
         performance_old = performance
+        centroid_old = centroid
+        membership_old = membership
 
         # Pre-calculations
         sum_dist_p2 = np.array([np.sum(inv_L2_p2_dist, axis=1)]).T
@@ -455,64 +463,51 @@ def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
                                ** 2]).T
         membership = np.divide(inv_L2_p2_dist, sum_dist_p2)
         div_weight = np.divide(sum_dist_p2, sum_dist_p)
+        # shape=(n_samples, n_clusters)
         m_k_i_numerator = np.multiply(membership, div_weight)
-        m_k_i_denominator = np.sum(m_k_i_numerator, axis=0)
+        # shape=(n_clusters, 1)
+        m_k_denominator = np.array([np.sum(m_k_i_numerator,
+                                           axis=0)]).T
+        # shape=(n_clusters, n_samples, n_features)
         m_k_i_numerator = np.array([np.multiply(X, np.array([
             m_k_i_numerator[:, c]]).T) for c in range(
             m_k_i_numerator.shape[1])])
-        mk_numerator = np.sum(m_k_i_numerator, axis=0)
-        m_k_denominator = np.sum(m_k_i_denominator, axis=0)
-        m_k = np.divide(mk_numerator, m_k_denominator)
-
-        print('Miraculous of lenght: ')
-        print(m_k.shape)
+        # shape=(n_clusters, n_features)
+        mk_numerator = np.sum(m_k_i_numerator, axis=1)
+        centroid = np.divide(mk_numerator, m_k_denominator)
 
         # Calculate distances
-        y_squared_norm = row_norms(centroid_old, squared=True)
+        y_squared_norm = row_norms(centroid, squared=True)
         L2_distance = np.maximum(euclidean_distances(X=X, Y=centroid,
-                                      Y_norm_squared=y_squared_norm,
-                                      squared=False,
-                                      X_norm_squared=x_squared_norm),
+                                 Y_norm_squared=y_squared_norm,
+                                 squared=False,
+                                 X_norm_squared=x_squared_norm),
                                  e)
         inv_L2_p_dist = 1 / (L2_distance ** (p))
         inv_L2_p2_dist = 1 / (L2_distance ** (p + 2))
 
-        performance = _evaluate_performance(X, centroid)
-        performance_incremment = performance_old - performance
+        performance = _evaluate_performance(X, centroid,
+                                            inv_L2_p_dist, p, e)
+        performance_increment = performance_old - performance
 
-        print('Performance: '.join(str(performance)))
+        print('performance old: ')
+        print(performance_old)
+        print('performance increment: ')
+        print(performance_increment)
+        print('iter: ')
+        print(iter_)
 
         iter_ += 1
 
-    # for i in range(n_samples):
-    #     denominator = np.sum(distance[i, :])
-    #     for j in range(k):
-    #         membership[i, j] = distance[i, j] / denominator
-    #
-    #     # labels assignment is also called the E-step of EM
-    #     labels, inertia = _labels_inertia(X, x_squared_norms,
-    # centers,
-    #                         precompute_distances=precompute_distances,
-    #                         distances=distances)
-    #
-    #
-    #
-    # while difference_performance > error_threshold & & iteration <
-    #     max_num_iterations
-    #
-    #     old_performance = performance;
-    #     centroids = getNewCentroidsHKM(instances, centroids);
-    #     performance = evaluatePerformance(instances, centroids);
-    #     difference_performance = abs(performance - old_performance);
-    #
-    #     iteration = iteration + 1;
-    # end
+    if performance_increment < 0:
+        centroid = centroid_old
+        membership = membership_old
+        iter_n = iter_-1
+        performance = performance_old
+    else:
+        iter_n = iter_
 
-    # membership = np.sum(div_membership)
-    # membership = div_membership
-    n_iter = iter_
-
-    return centroid, membership, n_iter, performance
+    return centroid, membership, iter_n, performance
 
 
 def _evaluate_performance(X, centroid, inv_distance=None, p=3.5,
@@ -528,11 +523,26 @@ def _evaluate_performance(X, centroid, inv_distance=None, p=3.5,
     if inv_distance is None:
         # shape (n_instances, n_centroids)
         L2_distance = np.maximum(euclidean_distances(X=X, Y=centroid,
-                                                 squared=False), e)
+                                                     squared=False),
+                                 e)
         inv_distance = 1 / (L2_distance ** p)
+    #     print('Was NONE')
+    #
+    # print('inv_distance')
+    # print(inv_distance.shape)
+    # print(np.amax(inv_distance))
+    # print(np.amin(inv_distance))
+    performance = np.sum(centroid.shape[0] / (np.sum(inv_distance,
+                                                     axis=1)))
+    # print('centroid.shape[0]')
+    # print(centroid.shape[0])
+    # # print('inv_distance')
+    # # print(inv_distance)
+    # print((np.sum(inv_distance, axis=1)).shape)
+    # print(np.sum(inv_distance, axis=1))
+    print('Performance: ')
+    print(performance)
 
-    performance = centroid.shape[0] * np.sum(1 / (np.sum(inv_distance,
-                                                         axis=1)))
     return performance
 
 
@@ -568,11 +578,8 @@ def _init_centroids(X, k, random_state=None):
     seeds = random_state.permutation(n_samples)[:k]
     centers = X[seeds]
 
-    if sp.issparse(centers):
-        print("line 570: it was sparse")
-        centers = centers.toarray()
-    else:
-        print("line 570: it was NOT sparse")
+    # if sp.issparse(centers):
+    #     centers = centers.toarray()
 
     _validate_center_shape(X, k, centers)
 
@@ -632,12 +639,106 @@ def _calc_membership(X, centroid, p=3.5, L2_p2_distance=None, e=1e-8):
 
     return membership
 
+
 if __name__ == "__main__":
-    print('Start')
-    X = np.array([[1, 2], [1, 4], [1, 0], [4, 2], [4, 4], [4, 0]])
-    print(X)
-    k_means = KHarmonicMeans(n_clusters=3).fit(X)
-    print('Finish')
-    print(k_means.labels_)
-    print(k_means.predict([[0, 0], [4, 4]]))
-    print(k_means.centroid)
+    import matplotlib.pyplot as plt
+    from sklearn import datasets
+    import sklearn.metrics as sm
+    import pandas as pd
+    import numpy as np
+    import warnings
+
+    warnings.filterwarnings("ignore")
+
+    # import some data to play with
+    iris = datasets.load_iris()
+
+    # Store the inputs as a Pandas Dataframe and set the column names
+    x = pd.DataFrame(iris.data)
+    x.columns = ['Sepal_Length', 'Sepal_Width', 'Petal_Length',
+                 'Petal_Width']
+
+    y = pd.DataFrame(iris.target)
+    y.columns = ['Targets']
+
+    # Set the size of the plot
+    plt.figure(figsize=(14, 7))
+
+    # Create a colormap
+    colormap = np.array(['red', 'lime', 'black'])
+
+    # Plot Sepal
+    plt.subplot(1, 2, 1)
+    plt.scatter(x.Sepal_Length, x.Sepal_Width, c=colormap[y.Targets],
+                s=40)
+    plt.title('Sepal')
+
+    plt.subplot(1, 2, 2)
+    plt.scatter(x.Petal_Length, x.Petal_Width, c=colormap[y.Targets],
+                s=40)
+    plt.title('Petal')
+
+    # K Means Cluster
+    model = KHarmonicMeans(n_clusters=3)
+    model.fit(x)
+
+    # This is what KMeans thought
+    print(model.labels_)
+
+    # View the results
+    # Set the size of the plot
+    plt.figure(figsize=(14, 7))
+
+    # Create a colormap
+    colormap = np.array(['red', 'lime', 'black'])
+
+    # Plot the Original Classifications
+    plt.subplot(1, 2, 1)
+    plt.scatter(x.Petal_Length, x.Petal_Width, c=colormap[y.Targets],
+                s=40)
+    plt.title('Real Classification')
+
+    # Plot the Models Classifications
+    plt.subplot(1, 2, 2)
+    plt.scatter(x.Petal_Length, x.Petal_Width,
+                c=colormap[model.labels_], s=40)
+    plt.title('K Mean Classification')
+
+    # The fix, we convert all the 1s to 0s and 0s to 1s.
+    predY = np.choose(model.labels_, [1, 0, 2]).astype(np.int64)
+    print(model.labels_)
+    print(predY)
+
+    # View the results
+    # Set the size of the plot
+    plt.figure(figsize=(14, 7))
+
+    # Create a colormap
+    colormap = np.array(['red', 'lime', 'black'])
+
+    # Plot Orginal
+    plt.subplot(1, 2, 1)
+    plt.scatter(x.Petal_Length, x.Petal_Width, c=colormap[y.Targets],
+                s=40)
+    plt.title('Real Classification')
+
+    # Plot Predicted with corrected values
+    plt.subplot(1, 2, 2)
+    plt.scatter(x.Petal_Length, x.Petal_Width, c=colormap[predY],
+                s=40)
+    plt.title('K Mean Classification')
+    plt.plot()
+
+    # Performance Metrics
+    print('Performance Metrics')
+    print(sm.accuracy_score(y, predY))
+
+    # Confusion Matrix
+    print('Confusion Matrix')
+    print(sm.confusion_matrix(y, predY))
+
+    # X = np.array([[1, 2], [1, 4], [1, 0], [4, 2], [4, 4], [4, 0]])
+    # k_means = KHarmonicMeans(n_clusters=3).fit(X)
+    # print(k_means.labels_)
+    # print(k_means.predict([[0, 0], [4, 4]]))
+    # print(k_means.centroid)
