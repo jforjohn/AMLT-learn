@@ -6,26 +6,28 @@
 import numpy as np
 import scipy.sparse as sp
 
-from sklearn.base import BaseEstimator, ClusterMixin, TransformerMixin
-from sklearn.metrics.pairwise import euclidean_distances
-from sklearn.utils.extmath import row_norms
-from sklearn.externals.joblib import Parallel
-from sklearn.externals.joblib import delayed
+from sklearn.base import BaseEstimator
+from sklearn.base import ClusterMixin
+from sklearn.base import TransformerMixin
 from sklearn.utils import check_array
 from sklearn.utils import check_random_state
 from sklearn.utils.validation import FLOAT_DTYPES
 from sklearn.utils.validation import check_is_fitted
 from sklearn.utils.validation import as_float_array
+from sklearn.utils.extmath import row_norms
 from sklearn.utils.sparsefuncs import mean_variance_axis
+from sklearn.metrics.pairwise import euclidean_distances
+from sklearn.externals.joblib import Parallel
+from sklearn.externals.joblib import delayed
 
 
 class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
-    """K-Harmonic means Algorithm
+    """K-harmonic means Clustering Algorithm
 
-    The k-harmonic means algorithm (KHM) follows the same strategy
+    The k-harmonic means algorithm (KHMp) follows the same strategy
     that k-means [1]_, differing in the objective function [2]_.
 
-    Paramereters
+    Parameters
     ------------
     n_clusters : int, optional, default: 8
         The number of clusters to form as well as the number of
@@ -37,35 +39,17 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         Number of time the k-means algorithm will be run with
         different centroid seeds. The final results will be the best
         output of n_init consecutive runs in terms of inertia.
-    init : {'k-means++', 'random' or an ndarray}
-        Method for initialization, defaults to 'k-means++':
-        'k-means++' : selects initial cluster centers for k-mean
-        clustering in a smart way to speed up convergence. See section
-        Notes in k_init for more details.
-        'random': choose k observations (rows) at random from data for
-        the initial centroids.
-        If an ndarray is passed, it should be of shape (n_clusters,
-        n_features) and gives the initial centers.
-    algorithm : "auto", "full" or "elkan", default="auto"
-        K-means algorithm to use. The classical EM-style algorithm is
-        "full".
-        The "elkan" variation is more efficient by using the triangle
-        inequality, but currently doesn't support sparse data. "auto"
-        chooses "elkan" for dense data and "full" for sparse data.
-    precompute_distances : {'auto', True, False}
-        Precompute distances (faster but takes more memory).
-        'auto' : do not precompute distances if n_samples * n_clusters
-        > 12 million. This corresponds to about 100MB overhead per job
-        using double precision.
-        True : always precompute distances
-        False : never precompute distances
+    algorithm : Feature NOT yet implemented
+        K-harmonic means algorithm to use (e.g. {'Zhang',}).
+    precompute_distances : Feature NOT yet implemented
+        Pre-compute distances (faster but takes more memory).
     tol : float, default: 1e-4
         Relative tolerance with regards to inertia to declare
         convergence
     p : int, default: 3.5
-        Power of the L^2 distance as the d(x,m) in KHMp
+        Power of the L^2 distance as the d(x,m) in KHMp.
     e : float, default: 1e-8
-        Small positive value necessary for avoiding zero denominators
+        Small positive value necessary for avoiding zero denominators.
     n_jobs : int
         The number of jobs to use for the computation. This works by
         computing each of the n_init runs in parallel.
@@ -79,50 +63,48 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         number generator.
     verbose : int, default 0
         Verbosity mode.
-    copy_x : boolean, default True
-        When pre-computing distances it is more numerically accurate
-        to center the data first.  If copy_x is True, then the
-        original data is not modified. If False, the original data is
-        modified, and put back before the function returns, but small
-        numerical differences may be introduced by subtracting and
-        then adding the data mean.
 
     Attributes
     ----------
-    cluster_centers_ : array, [n_clusters, n_features]
+    centroid : array, [n_clusters, n_features]
         Coordinates of cluster centers
     labels_ :
         Labels of each point
-    inertia_ : float
+    performance : float
         Sum of distances of samples to their closest cluster center.
 
-    See Also
+    See also
     --------
-    fuzzy k-means : different adaptation of k-means algorithm
+    KMeans
+        The classic implementation of the clustering method based on
+        the Lloyd's algorithm. It consumes the whole set of input data
+        at each iteration.
+    FuzzyKMeans
+        Different adaptation of k-means algorithm.
 
     Notes
     -----
-    Objective function implemented [2]_:
-    .. math::
-    Notes
-    ------
-    The k-means problem is solved using Lloyd's algorithm.
-    The average complexity is given by O(k n T), were n is the number
-    of samples and T is the number of iteration.
-    The worst case complexity is given by O(n^(k+2/p)) with
-    n = n_samples, p = n_features. (D. Arthur and S. Vassilvitskii,
-    'How slow is the k-means method?' SoCG2006)
-    In practice, the k-means algorithm is very fast (one of the
-    fastest clustering algorithms available), but it falls in local
-    minima. That's why it can be useful to restart it several times.
+    This version of K-harmonic means is the one presented by Zhang in
+    [2]_, which is referred as the Generalized K-Harmonic Means,
+    or KHMp, since the distance measure considered is the pth power of
+    the L2-distance (Euclidean), instead of the squared L2 as in the
+    previous versions of the k-harmonic means algorithm.
     Distance function d(x,m), implemented for KHMp (see [2]_):
-    .. math:: max(||x_i - c_j||, e)
-    where the parameter e is to avoid zero denominators.
-    Performance function implemented for KHMp was presented in [2]_.
-    The paramater p default value was set to 3.5, as that was the best
-    value found by Zhang [2]_, who also stated that for high
-    dimensionality data ( > 2 dimensions), larger p values could be
-    desired.
+    .. math:: max(||x_i - c_j||, e) ** 2,
+    where the parameter e is to avoid denominators of value=0.
+    The method was implemented taking scikit-learn KMeans as a guiding
+    reference, moreover, it can be noticed that most of parameters and
+    functions structural strategies have been maintained. However,
+    some functionalities, such as different initialization methods for
+    the centroids, which is crucial in k-means, while being redundant
+    to KHM, since this one, is insensible to centroids
+    initializations.
+    In the performance formula implemented for KHMp, the parameter p
+    default value was set to 3.5, since Zhang, in [2]_, stated that
+    3.5 was the best he found after several experiments with different
+    configurations. However, notice that he also stated that for high
+    dimensionality data (i.e. > 2 dimensional data), larger p values
+    could be desired.
 
     References
     ----------
@@ -137,11 +119,11 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
 
     Examples
     --------
-    >>> from sklearn.cluster import KMeans
+    >>> from amltlearn.cluster import KHarmonicMeans
     >>> import numpy as np
     >>> X = np.array([[1, 2], [1, 4], [1, 0],
     ...               [4, 2], [4, 4], [4, 0]])
-    >>> kmeans = KMeans(n_clusters=2, random_state=0).fit(X)
+    >>> kmeans = KHarmonicMeans(n_clusters=2, random_state=0).fit(X)
     >>> kmeans.labels_
     array([0, 0, 0, 1, 1, 1], dtype=int32)
     >>> kmeans.predict([[0, 0], [4, 4]])
@@ -152,11 +134,10 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
 
     """
 
-    def __init__(self, n_clusters=8, init='k-means++', n_init=10,
-                 max_iter=300, tol=1e-4, p=3.5, e=1e-8,
-                 precompute_distances='auto', verbose=False,
-                 random_state=None, n_jobs=1,
-                 algorithm='auto'):
+    def __init__(self, n_clusters=8, n_init=10, max_iter=300,
+                 tol=1e-4, p=3.5, e=1e-8, precompute_distances='True',
+                 verbose=False, random_state=None, n_jobs=1,
+                 algorithm='Zhang'):
 
         self.n_clusters = n_clusters
         self.max_iter = max_iter
@@ -176,7 +157,19 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         self.Y_squared_norm_ = None
 
     def _check_fit_data(self, X):
-        """Verify that the number of samples given is larger than k"""
+        """Verify that the number of samples given is larger than
+        k, and the data consistency for the clustering process
+
+        Parameters
+        ----------
+        X : array-like or sparse matrix, shape=(n_samples, n_features)
+
+        Return
+        ------
+        X : array-like or sparse matrix, shape=(n_samples, n_features)
+            Data to be clustered checked and fixed.
+
+        """
 
         X = check_array(X, accept_sparse='csr', dtype=[np.float64,
                                                        np.float32])
@@ -186,7 +179,20 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         return X
 
     def _check_test_data(self, X):
-        """Check consistency of data in array"""
+        """Check consistency of data in array, in order to be
+        clustered properly
+
+        Parameters
+        ----------
+        X : array-like or sparse matrix, shape=(n_samples, n_features)
+            Data to be clustered.
+
+        Return
+        ------
+        X : array-like or sparse matrix, shape=(n_samples, n_features)
+            Data to be clustered checked and fixed.
+
+        """
 
         X = check_array(X, accept_sparse='csr', dtype=FLOAT_DTYPES)
         n_samples, n_features = X.shape
@@ -203,6 +209,14 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         Parameters
         ----------
         X : array-like or sparse matrix, shape=(n_samples, n_features)
+            Coordinates of the data points to cluster.
+
+        Return
+        ------
+        model
+            Clustering model built on the data represented in X,
+            ready for further clustering new data on the built
+            clusters.
 
         """
 
@@ -210,13 +224,13 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         X = self._check_fit_data(X)
         tol = _tolerance(X, self.tol)
 
-        self.centroid, self.membership, self.performance, self.n_iter = \
-            k_harmonic_means(X, n_clusters=self.n_clusters,
-                             n_init=self.n_init,
-                             max_iter=self.max_iter,
-                             verbose=self.verbose, tol=float(tol),
-                             random_state=random_state,
-                             n_jobs=self.n_jobs)
+        self.centroid, self.membership, self.performance, self.n_iter\
+            = k_harmonic_means(X, n_clusters=self.n_clusters,
+                               n_init=self.n_init,
+                               max_iter=self.max_iter,
+                               verbose=self.verbose, tol=float(tol),
+                               random_state=random_state,
+                               n_jobs=self.n_jobs)
         self.labels_ = _get_labels(self.membership)
         self.Y_squared_norm_ = row_norms(self.centroid, squared=True)
         return self
@@ -231,7 +245,13 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         Parameters
         ----------
         X : array-like or sparse matrix, shape=(n_samples, n_features)
-        y : array-like or sparse matrix
+            Coordinates of the data points to cluster.
+
+        Return
+        ------
+        labels : array-like, int, shape [n_samples,]
+            List of indexes of the clusters where each data
+            sample belongs to.
 
         """
 
@@ -240,7 +260,7 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
     def predict(self, X):
         """Predict the closest cluster each sample in X belongs to.
 
-        In the vector quantization literature, `cluster_centers_` is
+        In the vector quantization literature, `centroid` is
         called the code book and each value returned by `predict` is
         the index of the closest code in the code book.
 
@@ -252,7 +272,7 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
 
         Returns
         -------
-        labels : array, shape [n_samples,]
+        labels : array, int, shape [n_samples,]
             Index of the cluster each sample belongs to.
 
         """
@@ -277,13 +297,34 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
 
 
 def _get_labels(membership):
-    """Show cluster with higher membership per each sample"""
+    """Show cluster with higher membership of each sample
+
+    Parameters
+    ----------
+    membership : matrix, float
+        Membership map of each sample with each cluster.
+
+    Returns
+    -------
+    labels : array, int, shape [n_samples,]
+        Index of the cluster each sample belongs to.
+
+    """
 
     return np.argmax(membership, axis=1)
 
 
 def _tolerance(X, tol):
-    """Return a tolerance which is independent of the data set"""
+    """Return a tolerance which is independent of the data set
+
+    Parameters
+    ----------
+    tol : float
+        Relative tolerance with regards to inertia to declare
+        convergence
+
+    """
+
     if sp.issparse(X):
         variances = mean_variance_axis(X, axis=0)[1]
     else:
@@ -297,21 +338,81 @@ def k_harmonic_means(X, n_clusters, n_init=10, max_iter=300,
                      algorithm='Zhang', p=3.5, e=1e-8):
     """K-harmonic means clustering algorithm.
 
-
     Parameters
     ----------
-        X : array-like or sparse matrix, shape=(n_samples, n_features)
+    X : array-like or sparse matrix, shape (n_samples, n_features)
+        The observations to cluster.
+    n_clusters : int
+        The number of clusters to form as well as the number of
+        centroids to generate.
+    max_iter : int, optional, default 300
+        Maximum number of iterations of the k-means algorithm to run.
+    n_init : int, optional, default: 10
+        Number of time the k-means algorithm will be run with different
+        centroid seeds. The final results will be the best output of
+        n_init consecutive runs in terms of inertia.
+    tol : float, optional
+        The relative increment in the results before declaring
+        convergence.
+    p : int, default: 3.5
+        Power of the L^2 distance as the d(x,m) in KHMp.
+    e : float, default: 1e-8
+        Small positive value necessary for avoiding zero denominators.
+    verbose : boolean, optional
+        Verbosity mode.
+    random_state : integer or numpy.RandomState, optional
+        The generator used to initialize the centers. If an integer is
+        given, it fixes the seed. Defaults to the global numpy random
+        number generator.
+    n_jobs : int
+        The number of jobs to use for the computation. This works by
+        computing each of the n_init runs in parallel.
+        If -1 all CPUs are used. If 1 is given, no parallel computing
+        code is used at all, which is useful for debugging. For n_jobs
+        below -1, (n_cpus + 1 + n_jobs) are used. Thus for
+        n_jobs = -2, all CPUs but one are used.
+    algorithm : Feature NOT yet implemented feature.
+    precompute_distances : Feature NOT yet implemented feature.
+
+    Returns
+    -------
+    best_centroid : float matrix, shape=(n_clusters, n_features)
+        Centroids found at the last iteration of k-harmonic means,
+        corresponding to the run which retrieved 'best results', this
+        is determined by the run that retrieved lower final
+        'performance' value.
+    best_membership: float matrix, shape=(n_samples, n_clusters)
+        membership[i,:] shows the membership degree of the i'th
+        observation to each cluster, corresponding to the run which
+        retrieved 'best results', this is determined by the run
+        that retrieved lower final 'performance' value.
+    best_performance: float
+        The final value of the performance criterion (see [2]_),
+        corresponding to the run which
+        retrieved 'best results', this is determined by the run
+        that retrieved lower final 'performance' value.
+    best_n_iter: int
+        Number of iterations, corresponding to the run which
+        retrieved 'best results', this is determined by the run
+        that retrieved lower final 'performance' value.
+
+    References
+    ----------
+    .. [2] B. Zhang. Generalized k-harmonic means – boosting in
+    unsupervised learning. Technical Report HPL-2000-137,
+    Hewlett-Packard Labs, 2000.
 
     """
 
     if n_init <= 0:
         raise ValueError("Invalid number of initializations."
-                         " n_init=%d must be bigger than zero." % n_init)
+                         " n_init=%d must be bigger than zero."
+                         % n_init)
     random_state = check_random_state(random_state)
 
     if max_iter <= 0:
-        raise ValueError('Number of iterations should be a positive number,'
-                         ' got %d instead' % max_iter)
+        raise ValueError('Number of iterations should be a positive '
+                         'number, got %d instead' % max_iter)
 
     X = as_float_array(X, copy=True)
 
@@ -321,27 +422,7 @@ def k_harmonic_means(X, n_clusters, n_init=10, max_iter=300,
         # The copy was already done above
         X -= X_mean
 
-    # If the distances are precomputed every job will create a
-    # matrix of shape
-    # (n_clusters, n_samples). To stop KMeans from eating up memory
-    #  we only
-    # activate this if the created matrix is guaranteed to be under
-    #  100MB. 12
-    # million entries consume a little under 100MB if they are of
-    # type double.
-    # if precompute_distances == 'auto':
-    #     n_samples = X.shape[0]
-    #     precompute_distances = (n_clusters * n_samples) < 12e6
-    # elif isinstance(precompute_distances, bool):
-    #     pass
-    # else:
-    #     raise ValueError(
-    #         "precompute_distances should be 'auto' or True/False"
-    #         ", but a value of %r was passed" %
-    #         precompute_distances)
-
-    # if precompute_distances:
-    # precompute squared and non-squared norms of data points
+    # pre-compute squared norms of the data samples
     x_squared_norm = row_norms(X, squared=True)
 
     best_membership = None
@@ -366,6 +447,11 @@ def k_harmonic_means(X, n_clusters, n_init=10, max_iter=300,
                               x_squared_norm=x_squared_norm,
                               tol=tol, random_state=random_state,
                               p=p, e=e)
+            if verbose:
+                print('Run #'+str(it) + '/' + str(n_init)
+                      + ' completed\n  Performance: '
+                      + str(performance) + '\n  #Iterations: '
+                      + str(n_iter))
             # determine if these results are the best so far
             if best_performance is None or performance < \
                     best_performance:
@@ -396,6 +482,11 @@ def k_harmonic_means(X, n_clusters, n_init=10, max_iter=300,
     if not sp.issparse(X):
         best_centroid += X_mean
 
+    if verbose:
+        print('Clustering completed\nBest results achieved:\n  '
+              'Performance: ' + str(best_performance)
+              + '\n  #Iterations: ' + str(best_n_iter))
+
     return best_centroid, best_membership, best_performance, \
         best_n_iter
 
@@ -403,12 +494,50 @@ def k_harmonic_means(X, n_clusters, n_init=10, max_iter=300,
 def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
                       x_squared_norm=None, tol=1e-4,
                       random_state=None, p=3.5, e=1e-8):
-    """K-harmonic means clustering algorithm.
-
+    """A single run of k-means, assumes preparation completed prior.
 
     Parameters
     ----------
-        X : array-like or sparse matrix, shape=(n_samples, n_features)
+    X: array-like of floats, shape (n_samples, n_features)
+        The observations to cluster.
+    n_clusters: int
+        The number of clusters to form as well as the number of
+        centroids to generate.
+    max_iter: int, optional, default 300
+        Maximum number of iterations of the k-means algorithm to run.
+    tol: float, optional
+        The relative increment in the results before declaring
+        convergence.
+    p : int, default: 3.5
+        Power of the L^2 distance as the d(x,m) in KHMp.
+    e : float, default: 1e-8
+        Small positive value necessary for avoiding zero denominators.
+    verbose: boolean, optional
+        Verbosity mode
+    x_squared_norm: array
+        Precomputed x_squared_norms.
+    random_state: integer or numpy.RandomState, optional
+        The generator used to initialize the centers. If an integer is
+        given, it fixes the seed. Defaults to the global numpy random
+        number generator.
+
+    Returns
+    -------
+    centroid: float matrix, shape=(n_clusters, n_features)
+        Centroids found at the last iteration of k-harmonic means.
+    membership: float matrix, shape=(n_samples, n_clusters)
+        membership[i,:] shows the membership degree of the i'th
+        observation to each cluster.
+    performance: float
+        The final value of the performance criterion (see [2]_).
+    n_iter : int
+        Number of iterations in this run.
+
+    References
+    ----------
+    .. [2] B. Zhang. Generalized k-harmonic means – boosting in
+    unsupervised learning. Technical Report HPL-2000-137,
+    Hewlett-Packard Labs, 2000.
 
     """
 
@@ -442,7 +571,6 @@ def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
 
     performance = _evaluate_performance(X, centroid, inv_L2_p_dist,
                                         p, e)
-
     if verbose:
         print('Initialization complete')
 
@@ -450,7 +578,7 @@ def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
     iter_ = 0
     performance_increment = np.inf
     while iter_ < max_iter and performance_increment > tol:
-        # Save state
+        # Save previous state
         performance_old = performance
         centroid_old = centroid
         membership_old = membership
@@ -484,17 +612,10 @@ def _k_harmonic_means(X, n_clusters, max_iter=300, verbose=False,
         inv_L2_p_dist = 1 / (L2_distance ** (p))
         inv_L2_p2_dist = 1 / (L2_distance ** (p + 2))
 
+        # Calculate performance
         performance = _evaluate_performance(X, centroid,
                                             inv_L2_p_dist, p, e)
         performance_increment = performance_old - performance
-
-        # print('performance old: ')
-        # print(performance_old)
-        # print('performance increment: ')
-        # print(performance_increment)
-        # print('iter: ')
-        # print(iter_)
-
         iter_ += 1
 
     if performance_increment < 0:
@@ -514,51 +635,48 @@ def _evaluate_performance(X, centroid, inv_distance=None, p=3.5,
 
     Parameters
     ----------
-        X : array-like or sparse matrix, shape=(n_samples, n_features)
+    X : array-like or matrix, shape (n_samples, n_features)
+        The observations to cluster.
+    centroid : float ndarray with shape (k, n_features)
+        Centroids found when computing K-harmonic means.
+    p : int, default: 3.5
+        Power of the L^2 distance as the d(x,m) in KHMp.
+    inv_L2_p2_distance : array-like or matrix, shape (n_instances,
+    n_centroids), float, default : None
+        Precomputed inverted-distances for speeding up the membership
+        calculations.
+    e : float, default: 1e-8
+        Small positive value necessary for avoiding zero denominators.
+
+    Return
+    ------
+    performance : float
+        Quality measure of the clustering partition.
 
     """
 
     if inv_distance is None:
         # shape (n_instances, n_centroids)
-        L2_distance = np.maximum(euclidean_distances(X=X, Y=centroid,
-                                                     squared=False),
-                                 e)
-        inv_distance = 1 / (L2_distance ** p)
-    #     print('Was NONE')
-    #
-    # print('inv_distance')
-    # print(inv_distance.shape)
-    # print(np.amax(inv_distance))
-    # print(np.amin(inv_distance))
+        inv_distance = 1 / ((np.maximum(euclidean_distances(
+            X=X, Y=centroid, squared=False), e)) ** p)
+
     performance = np.sum(centroid.shape[0] / (np.sum(inv_distance,
                                                      axis=1)))
-    # print('centroid.shape[0]')
-    # print(centroid.shape[0])
-    # # print('inv_distance')
-    # # print(inv_distance)
-    # print((np.sum(inv_distance, axis=1)).shape)
-    # print(np.sum(inv_distance, axis=1))
-    # print('Performance: ')
-    # print(performance)
-
     return performance
 
 
-def _init_centroids(X, k, random_state=None):
+def _init_centroids(X, n_centroid, random_state=None):
     """Compute the initial centroids
 
     Parameters
     ----------
     X: array, shape (n_samples, n_features)
-    k: int
+    n_centroid: int
         number of centroids
     random_state: integer or numpy.RandomState, optional
         The generator used to initialize the centers. If an integer is
         given, it fixes the seed. Defaults to the global numpy random
         number generator.
-    x_squared_norms:  array, shape (n_samples,), optional
-        Squared euclidean norm of each data point. Pass it if you have it at
-        hands already to avoid it being recomputed here. Default: None
 
     Returns
     -------
@@ -569,19 +687,14 @@ def _init_centroids(X, k, random_state=None):
     random_state = check_random_state(random_state)
     n_samples = X.shape[0]
 
-    if n_samples < k:
+    if n_samples < n_centroid:
         raise ValueError("n_samples=%d should be larger than k=%d" %
-                         (n_samples, k))
+                         (n_samples, n_centroid))
 
-    seeds = random_state.permutation(n_samples)[:k]
-    centers = X[seeds]
-
-    # if sp.issparse(centers):
-    #     centers = centers.toarray()
-
-    _validate_center_shape(X, k, centers)
-
-    return centers
+    seeds = random_state.permutation(n_samples)[:n_centroid]
+    centroid = X[seeds]
+    _validate_center_shape(X, n_centroid, centroid)
+    return centroid
 
 
 def _validate_center_shape(X, n_centers, centers):
@@ -597,7 +710,8 @@ def _validate_center_shape(X, n_centers, centers):
             % (centers.shape[1], X.shape[1]))
 
 
-def _calc_membership(X, centroid, p=3.5, L2_p2_distance=None, e=1e-8):
+def _calc_membership(X, centroid, p=3.5, inv_L2_p2_distance=None,
+                     e=1e-8):
     """Calculate the memberships of instances to existing clusters
 
     Parameters
@@ -608,9 +722,9 @@ def _calc_membership(X, centroid, p=3.5, L2_p2_distance=None, e=1e-8):
         Centroids found when computing K-harmonic means.
     p : int, default: 3.5
         Power of the L^2 distance as the d(x,m) in KHMp.
-    L2_p2_distance : array-like or matrix, shape (n_instances,
+    inv_L2_p2_distance : array-like or matrix, shape (n_instances,
     n_centroids), float, default : None
-        Precomputed distances for speeding up the membership
+        Precomputed inverted-distances for speeding up the membership
         calculations.
     e : float, default: 1e-8
         Small positive value necessary for avoiding zero denominators.
@@ -621,26 +735,17 @@ def _calc_membership(X, centroid, p=3.5, L2_p2_distance=None, e=1e-8):
 
     """
 
-    k = centroid.shape[0]
-    n_samples = X.shape[0]
-    membership = np.zeros(shape=(n_samples,k), dtype=X.dtype)
-    if L2_p2_distance is None:
-        L2_distance = np.maximum(euclidean_distances(
-            X=centroid, Y=X, squared=False), e)
-        L2_p2_distance = L2_distance ** (p + 2)
+    if inv_L2_p2_distance is None:
+        inv_L2_p2_distance = 1 / ((np.maximum(euclidean_distances(
+            X=X, Y=centroid, squared=False), e)) ** (p + 2))
 
-    distance = 1/L2_p2_distance
-    for i in range(n_samples):
-        denominator = np.sum(distance[i, :])
-        for j in range(k):
-            membership[i, j] = distance[i, j] / denominator
-
+    sum_dist_p2 = np.array([np.sum(inv_L2_p2_distance, axis=1)]).T
+    membership = np.divide(inv_L2_p2_distance, sum_dist_p2)
     return membership
 
 
 if __name__ == "__main__":
     """Testing the clustering algorithm on the iris data set"""
-    
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
     from sklearn.cluster import KMeans
@@ -649,7 +754,7 @@ if __name__ == "__main__":
     import warnings
 
     # It is interesting to suppress warnings since there is an
-    # internal issue with the 'euclidean_distances' sklearn
+    # internal issue with the 'euclidean_distances' sklearn.metrics
     # function, when it tries to check the precomputed squared
     # norms, the array checking function raises a warning of
     # deprecated method for 1-d arrays. Since most times the
