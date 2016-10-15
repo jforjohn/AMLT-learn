@@ -19,6 +19,7 @@ from sklearn.utils.sparsefuncs import mean_variance_axis
 from sklearn.metrics.pairwise import euclidean_distances
 from sklearn.externals.joblib import Parallel
 from sklearn.externals.joblib import delayed
+from sklearn.exceptions import NotFittedError
 
 
 class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
@@ -289,11 +290,30 @@ class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
             X=X, Y=Y, Y_norm_squared=y_squared_norm, squared=False,
             X_norm_squared=x_squared_norm), self.e)
 
-        L2_p2_distance = L2_distance ** (self.p+2)
-        membership = _calc_membership(X, self.centroid, self.p,
-                                      L2_p2_distance=L2_p2_distance,
-                                      e=self.e)
-        return _get_labels(membership)
+        L2_p2_distance = 1 / (L2_distance ** (self.p+2))
+        self.membership = _calc_membership(
+            X, self.centroid, self.p,
+            inv_L2_p2_distance=L2_p2_distance,
+            e=self.e)
+        self.labels_ = _get_labels(self.membership)
+        return self.labels_
+
+    def predict_proba(self, X):
+        """Predict membership degree of sample belonging to each
+        cluster in the model.
+
+        Parameters
+        ----------
+        X : array-like, shape = [n_samples, n_features]
+
+        Returns
+        -------
+        membership : matrix, shape = [n_samples, n_classes]
+
+        """
+
+        self.predict(X)
+        return self.membership
 
 
 def _get_labels(membership):
@@ -706,7 +726,7 @@ def _validate_center_shape(X, n_centers, centroid):
         raise ValueError('The shape of the initial centers (%s) '
                          'does not match the number of clusters %i'
                          % (centroid.shape, n_centers))
-    if centers.shape[1] != X.shape[1]:
+    if centroid.shape[1] != X.shape[1]:
         raise ValueError(
             "The number of features of the initial centers %s "
             "does not match the number of features of the data %s."
@@ -775,9 +795,6 @@ if __name__ == "__main__":
           '1-KHarmonic clustering result\n    2-KMeans clustering '
           'result\n    3-Ground truth of the iris data.')
 
-    np.random.seed(5)
-
-    centers = [[1, 1], [-1, -1], [1, -1]]
     iris = datasets.load_iris()
     X = iris.data
     y = iris.target
