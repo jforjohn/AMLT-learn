@@ -24,4 +24,5 @@ from .KPrototypes import KPrototypes
 
 __all__ = ['GlobalKMeans',
            'Leader', 'KernelKMeans',
-           'KModes', 'KPrototypes']
+           'KModes', 'KPrototypes',
+           'KHarmonicMeans']
