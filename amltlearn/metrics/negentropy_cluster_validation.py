@@ -78,27 +78,29 @@ def negentropy_cluster_increment(X, label_, single_cov_det_log=None):
     _check_number_of_labels(n_label, n_sample)
     # Pre-calculate
     if single_cov_det_log is None:
-        single_cov_det_log = np.log(
-            np.linalg.det(np.cov(X, rowvar=False)))
+        single_cov_det_log = np.log(np.linalg.det(np.cov(X,
+                                                  rowvar=False)))
 
     unique_label = le.classes_
     n_samples_per_label = bincount(label_,
                                    minlength=len(unique_label))
     order = np.argsort(label_)
-    space_index = n_samples_per_label.cumsum()
-    cluster_space = np.split(X[order],
-                             indices_or_sections=space_index, axis=0)
+    space_index = n_samples_per_label.cumsum()[:-1]
+    cluster_space = np.array(np.split(X[order],
+                             indices_or_sections=space_index,
+                             axis=0))
     # Calculate negentropy increment
     prior_proba = n_samples_per_label / n_sample
-    print(cluster_space)
-    print(cluster_space.shape)
-    cluster_cov_det_log = [np.log(np.linalg.det(np.cov(cluster))) for
-                           cluster in cluster_space] * prior_proba
-    prior_proba_log = np.log(prior_proba) * prior_proba
 
-    increment = 0.5 * (np.sum(cluster_cov_det_log)
-                       - single_cov_det_log) - np.sum(
-        prior_proba_log)
+    cluster_cov_det_log = np.sum([np.log(np.linalg.det(np.cov(
+        cluster_space[cluster_it], rowvar=False))) for cluster_it
+                                 in range(cluster_space.shape[0])]
+                                 * prior_proba)
+
+    prior_proba_log = np.sum(np.log(prior_proba) * prior_proba)
+
+    increment = (0.5 * (cluster_cov_det_log - single_cov_det_log)
+                 - prior_proba_log)
 
     return increment
 
@@ -114,76 +116,87 @@ def _check_number_of_labels(n_labels, n_samples):
     """
 
     if not 1 < n_labels < n_samples:
-        raise ValueError("Number of labels is %d. Valid values are"
+        raise ValueError("Number of labels is %d. Valid values are "
                          "2 to n_samples - 1 (inclusive)" % n_labels)
 
 
 if __name__ == "__main__":
     """Testing the negentropy increment clustering validation
-    algorithm on the iris data set"""
+    algorithm on generated data sets"""
     from sklearn.cluster import KMeans
-    from sklearn import datasets
-    # import warnings
+    from sklearn.datasets import make_blobs
+    import matplotlib.pyplot as plt
 
-    # It is interesting to suppress warnings since there is an
-    # internal issue with the 'euclidean_distances' sklearn.metrics
-    # function, when it tries to check the precomputed squared
-    # norms, the array checking function raises a warning of
-    # deprecated method for 1-d arrays. Since most times the
-    # precomputed norms are used for speeding up the code, in this
-    # test the warnings are suppressed, for increasing readability
-    # on the results.
-    # warnings.filterwarnings("ignore")
+    # The test provided compares the resulting performance of
+    # K-means when using different number of clusters on a generated
+    # data set. It is expected that the lowest (best) negentropy
+    # increment values will be retrieved when the numbers of clusters
+    # used, are similar to the real number of clusters.
 
     print(
         'Starting the integrated simple test of Negentropy'
         'increment clustering validation metric (for crisp'
-        'clustering algorithms), implemented for the AMLT subject.'
+        'clustering algorithms).\nImplemented for the AMLT subject.'
         '\n\nFor this purpose, it will run different clustering'
-        'algoritms/configurations, for clustering the the iris data'
-        'set, in order to check if the validation metric agrees'
+        'algoritms/configurations,\n for clustering a generated data'
+        'set, in order to check if the validation\n metric agrees'
         'with the real number of classes in the data set.')
 
-    iris = datasets.load_iris()
-    X = iris.data
-    y = iris.target
+    plt.figure(figsize=(12, 12))
+
+    # Data set creation
+    n_samples = 30000
+    random_state = 170
+    n_cluster_real = 5
+    X, y = make_blobs(n_samples=n_samples, centers=n_cluster_real,
+                      random_state=random_state)
 
     # Add further clustering algorithms or configurations as
     # elements of the 'estimators' list, in order to compare the
     # their performance, by analysing the retrieved results on the
-    # well-known iris data set, using the negentropy increment
-    # method.
-    #
-    # The test provided compares the resulting performance of
-    # K-means when using different number of clusters on the iris
-    # data set. It is expected that the lowest (best) negentropy
-    # increment values will be retrieved for numbers of clusters
-    # close to the 3, since is the real number of classes in the
-    # data.
-    estimator = np.array([[('KMeans_' + str(n_cluster + 1)), KMeans(
-        n_clusters=n_cluster + 1), 0.] for n_cluster in range(9)])
+    # generated data set, using the negentropy increment method.
+
+    estimator = np.array([[('KMeans_' + str(n_cluster)), KMeans(
+        n_clusters=n_cluster), 0., n_cluster] for n_cluster in range(2, 11)])
 
     # Pre-calculation
-    single_cov_det_log = np.log(np.linalg.det(np.cov(X,
-                                                     rowvar=False)))
-    for name, est, negentropy_increment in estimator:
-        print('\nClustering the iris data set by the ' + str(name)
-              + ' clustering algorithm')
-        print(type(est))
-        est = est.fit(X)
-        label = est.labels_
-        negentropy_increment = negentropy_cluster_increment(
-            X, label, single_cov_det_log)
+    single_cov_det_log = np.log(np.linalg.det(np.cov(X, rowvar=False)))
+    for i in range(estimator.shape[0]):
+        name = estimator[i, 0]
+        est = estimator[i, 1]
+
+        print('\nClustering the generated data set by the '
+              + str(name) + ' clustering algorithm')
+
+        label = est.fit_predict(X)
+        # Plotting
+        plt.subplot(3, 3, i+1)
+        plt.scatter(X[:, 0], X[:, 1], c=label)
+        plt.title(name)
+        # Save results
+        estimator[i, 2] = negentropy_cluster_increment(
+            X, label, single_cov_det_log=single_cov_det_log)
+
     print('\nAll clustering process have finished.\n')
 
     # Print results
-    sorted_estimator = np.sort(estimator, axis=2)
-    print('Next the full classification from best to worse, of the'
+    sort_estimator = estimator[np.argsort(estimator[:, 2],
+                                            axis=0)]
+    print('\nNext the full classification from best to worse, of the'
           'compared clustering strategies, is shown:\n')
-    for name, est, negentropy_increment in sorted_estimator:
+    additional_msg = ''
+    for name, est, negentropy_increment, n_cluster in sort_estimator:
+        if n_cluster_real == n_cluster:
+            additional_msg = (
+                '  => ' + str(n_cluster) + ' is the REAL NUMBER OF'
+                                           'CLUSTERS IN THE DATASET')
+        else:
+            additional_msg = ''
         print('Clustering algorithm: ' + name
               + ', negentropy increment: '
-              + str(negentropy_increment))
+              + str(negentropy_increment) + additional_msg)
+
+    plt.show()
 
     print('\nEnd of the simple test.')
 
