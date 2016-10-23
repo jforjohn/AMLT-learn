@@ -19,7 +19,6 @@ from sklearn.utils.sparsefuncs import mean_variance_axis
 from sklearn.metrics.pairwise import euclidean_distances
 from sklearn.externals.joblib import Parallel
 from sklearn.externals.joblib import delayed
-from sklearn.exceptions import NotFittedError
 
 
 class KHarmonicMeans(BaseEstimator, ClusterMixin, TransformerMixin):
@@ -807,12 +806,12 @@ if __name__ == "__main__":
     # take into account that the labels might be in a different
     # order and this code wont find it, though it should be done
     # manually.
-    estimators = {'KHarmonicMeans': KHarmonicMeans(n_clusters=3),
+    estimator = {'KHarmonicMeans': KHarmonicMeans(n_clusters=3),
                   'KMeans': KMeans(n_clusters=3)}
 
     best_order = None
     fignum = 1
-    for name, est in estimators.items():
+    for name, est in estimator.items():
         print('\nClustering the iris data set by the ' + str(name)
               + ' clustering algorithm')
         fig = plt.figure(fignum, figsize=(4, 3))
@@ -879,6 +878,173 @@ if __name__ == "__main__":
     ax.set_zlabel('Petal length')
 
     print('\nEnd of the simple test.')
-    plt.show()
+    # plt.show()
+
+    ##################################################################
+    # ATTENTION
+    # ---------
+    # The following part of this section of the code, was just
+    # implemented for the purpose of writing the report, though, it
+    # should be removed before integrating the code with the rest of
+    # the AMLT-learn repository.
+    ##################################################################
+    from sklearn.metrics import calinski_harabaz_score
+    from sklearn.metrics import adjusted_rand_score
+    from sklearn.datasets import make_blobs
+    from sklearn.utils import check_random_state
+
+    print('\nStart of the report test.')
+
+    # First report test for KHMp
+    # Initialise
+    n_run = 10
+    random_state = 170
+    result = {'KHarmonicMeans': np.zeros([10]),
+              'KMeans': np.zeros([10])}
+
+
+    random_state = check_random_state(random_state)
+    seeds = random_state.randint(np.iinfo(np.int32).max, size=n_run)
+    # Data set
+    iris = datasets.load_iris()
+    X = iris.data
+    y = iris.target
+
+    i = 0
+    for seed in seeds:
+        # Models to compare
+        estimator = {
+            'KHarmonicMeans': KHarmonicMeans(n_clusters=3, n_init=1,
+                                             random_state=seed),
+            'KMeans': KMeans(n_clusters=3, n_init=1, init='random',
+                             random_state=seed)
+            }
+
+        for name, est in estimator.items():
+            pred_y = est.fit_predict(X)
+
+            best_predict_y = pred_y
+            best_accuracy = 0
+            best_order = [0, 1, 2]
+            orders = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0],
+                      [2, 0, 1], [2, 1, 0]]
+            for order in orders:
+                predict_y = np.choose(est.labels_, order).astype(
+                    np.int64)
+                accuracy = sm.accuracy_score(y, predict_y)
+                if accuracy > best_accuracy:
+                    best_accuracy = accuracy
+                    best_predict_y = predict_y
+
+            result[name][i] = best_accuracy
+
+        i += 1
+
+    for name, res in result.items():
+        print(name + ': ' + str(np.std(res)))
+
+    # Second report test for KHMp
+    # Initialisation
+    n_run = 10
+    random_state = check_random_state(random_state)
+    seeds = random_state.randint(np.iinfo(np.int32).max, size=n_run)
+    neg_inc_result = {'Data1': {'KM': np.zeros([10, 2, 7]),
+                                'KHMp': np.zeros([10, 2, 7])},
+                      'Data2': {'KM': np.zeros([10, 2, 7]),
+                                'KHMp': np.zeros([10, 2, 7])},
+                      'Data3': {'KM': np.zeros([10, 2, 7]),
+                                'KHMp': np.zeros([10, 2, 7])},
+                      'Data4': {'KM': np.zeros([10, 2, 7]),
+                                'KHMp': np.zeros([10, 2, 7])}
+                      }
+    estimator = [{'KM': KMeans(n_clusters=n_cluster),
+                  'KHMp': KHarmonicMeans(n_clusters=n_cluster)}
+                 for n_cluster in range(2, 9)]
+
+    # Repetition loop
+    i = 0
+    for seed in seeds:
+        # Data sets configuration
+        dataset = {
+            'Data1': make_blobs(n_samples=500, n_features=2,
+                                        centers=4, cluster_std=1.,
+                                        random_state=seed),
+                   'Data2': make_blobs(n_samples=10000, n_features=2,
+                                       centers=4, cluster_std=1.,
+                                       random_state=seed),
+                   'Data3': make_blobs(n_samples=3000, n_features=2,
+                                       centers=2, cluster_std=1.,
+                                       random_state=seed),
+                   'Data4': make_blobs(n_samples=3000, n_features=2,
+                                       centers=7, cluster_std=1.,
+                                       random_state=seed)
+                   }
+        # For each data set
+        for name_data, [X, y] in dataset.items():
+            # Iterate over clustering configurations
+            j = 0
+            for est in estimator:
+                pred_y_KM = est['KM'].fit_predict(X)
+                pred_y_KHM = est['KHMp'].fit_predict(X)
+                neg_inc_result[name_data]['KM'][i, 0, j] \
+                    = calinski_harabaz_score(X, pred_y_KM)
+                neg_inc_result[name_data]['KHMp'][i, 0, j] \
+                    = calinski_harabaz_score(X, pred_y_KHM)
+                neg_inc_result[name_data]['KM'][i, 1, j] \
+                    = adjusted_rand_score(y, pred_y_KM)
+                neg_inc_result[name_data]['KHMp'][i, 1, j] \
+                    = adjusted_rand_score(y, pred_y_KHM)
+                j += 1
+        i += 1
+
+    for name_data, results in neg_inc_result.items():
+        msg_0_KM = ''
+        msg_1_KM = ''
+        msg_0_KHMp = ''
+        msg_1_KHMp = ''
+        for name_method, result in results.items():
+            res = np.average(result, axis=0)
+            res_0 = np.round(res[0, :])
+            res_1 = np.round(res[1, :], decimals=3)
+            # Print results
+            print(name_data + name_method)
+            print('Internal')
+            print(res_0)
+            print('External')
+            print(res_1)
+            
+            # Automatic generate latex code for report table
+            if name_method == 'KM':
+                for val_ in res_0:
+                    msg_0_KM += ' & \multicolumn{1}{|c|}{' + str(
+                        int(val_)) \
+                             + '}#'
+                for val_ in res_1:
+                    msg_1_KM += ' & \multicolumn{1}{|c|}{' + str(
+                        val_) + '}#'
+            elif name_method == 'KHMp':
+                for val_ in res_0:
+                    msg_0_KHMp += ' & \multicolumn{1}{|c|}{' + str(
+                        int(val_)) \
+                             + '}#'
+                for val_ in res_1:
+                    msg_1_KHMp += ' & \multicolumn{1}{|c|}{' + str(
+                        val_) + '}#'
+        final_0 = ''
+        final_1 = ''
+        msgs_0_KM = msg_0_KM.split('#')
+        msgs_1_KM = msg_1_KM.split('#')
+        msgs_0_KHMp = msg_0_KHMp.split('#')
+        msgs_1_KHMp = msg_1_KHMp.split('#')
+        
+        for i in range(len(msgs_0_KM)):
+            final_0 += msgs_0_KM[i] + msgs_0_KHMp[i]
+            final_1 += msgs_1_KM[i] + msgs_1_KHMp[i]
+        print(name_data + ' Internal')
+        print(final_0)
+        print(name_data + ' External')
+        print(final_1)
+
+    print('\nEnd of the report experiment.')
 
 # EOF

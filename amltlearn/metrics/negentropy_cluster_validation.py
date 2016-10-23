@@ -53,6 +53,9 @@ def negentropy_cluster_increment(X, label_, single_cov_det_log=None):
     notice that lower values indicate better clustering properties.
     Though, the selection rule used, should be, 'the lower - the
     better'.
+    The negentropy increment is calculated as in [1]_:
+    .. math :: i_neg = 0.5 * (sum(p_i * log(cov(X_i))) - log(cov(X)))
+                       - sum(p_i * log(p_i))
 
     References
     ----------
@@ -89,16 +92,18 @@ def negentropy_cluster_increment(X, label_, single_cov_det_log=None):
     cluster_space = np.array(np.split(X[order],
                              indices_or_sections=space_index,
                              axis=0))
-    # Calculate negentropy increment
-    prior_proba = n_samples_per_label / n_sample
 
+    prior_proba = n_samples_per_label / n_sample
+    # For each cluster elements matrix, compute the logarithm of
+    # the determinant of the covariance matrix, and multiply it by
+    # it's prior
     cluster_cov_det_log = np.sum([np.log(np.linalg.det(np.cov(
         cluster_space[cluster_it], rowvar=False))) for cluster_it
                                  in range(cluster_space.shape[0])]
                                  * prior_proba)
 
     prior_proba_log = np.sum(np.log(prior_proba) * prior_proba)
-
+    # Calculate negentropy increment
     increment = (0.5 * (cluster_cov_det_log - single_cov_det_log)
                  - prior_proba_log)
 
@@ -125,6 +130,7 @@ if __name__ == "__main__":
     algorithm on generated data sets"""
     from sklearn.cluster import KMeans
     from sklearn.datasets import make_blobs
+    from sklearn.utils import check_random_state
     import matplotlib.pyplot as plt
 
     # The test provided compares the resulting performance of
@@ -196,8 +202,78 @@ if __name__ == "__main__":
               + ', negentropy increment: '
               + str(negentropy_increment) + additional_msg)
 
-    plt.show()
+    # Uncomment for visualizing the different partitions
+    # plt.show()
 
     print('\nEnd of the simple test.')
+
+    ##################################################################
+    # ATTENTION
+    # ---------
+    # The following part of this section of the code, was just
+    # implemented for the purpose of writing the report, though, it
+    # should be removed before integrating the code with the rest of
+    # the AMLT-learn repository.
+    ##################################################################
+
+    print('\nStart of the report test.')
+
+    # The experiment results will be averaged over 10 runs
+    n_run = 10
+
+    # Initialisation
+    random_state = 170
+    random_state = check_random_state(random_state)
+    seeds = random_state.randint(np.iinfo(np.int32).max, size=n_run)
+    neg_inc_result = {'Data1': np.zeros([10, 9]),
+                      'Data2': np.zeros([10, 9]),
+                      'Data3': np.zeros([10, 9]),
+                      'Data4': np.zeros([10, 9])}
+    estimator = np.array([KMeans(n_clusters=n_cluster) for n_cluster
+                          in range(2, 11)])
+
+    # Repetition loop
+    i = 0
+    for seed in seeds:
+        # Data sets configuration
+        dataset = {'Data1': make_blobs(n_samples=500, n_features=2,
+                                       centers=4, cluster_std=1.,
+                                       random_state=seed),
+                   'Data2': make_blobs(n_samples=10000, n_features=2,
+                                       centers=4, cluster_std=1.,
+                                       random_state=seed),
+                   'Data3': make_blobs(n_samples=3000, n_features=2,
+                                       centers=2, cluster_std=1.,
+                                       random_state=seed),
+                   'Data4': make_blobs(n_samples=3000, n_features=2,
+                                       centers=7, cluster_std=1.,
+                                       random_state=seed)
+                   }
+        # For each data set
+        for name, [X, y] in dataset.items():
+            # Pre-calculation
+            single_cov_det_log = np.log(
+                np.linalg.det(np.cov(X, rowvar=False)))
+            # Iterate over clustering configurations
+            j = 0
+            for est in estimator:
+                pred_y = est.fit_predict(X)
+                neg_inc_result[name][i, j] = \
+                    negentropy_cluster_increment(
+                        X, pred_y,
+                        single_cov_det_log=single_cov_det_log)
+                j += 1
+        i += 1
+
+    # print(neg_inc_result)
+    # print(neg_inc_result.items())
+    neg_final_result = {name: np.average(result, axis=0)
+                        for name, result in neg_inc_result.items()}
+
+    for name, result in neg_final_result.items():
+        print(name)
+        print(result)
+
+    print('\nEnd of the report experiment.')
 
 # EOF
